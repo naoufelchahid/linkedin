@@ -117,3 +117,20 @@ def test_extract_only_explicit_approved_block(tmp_path):
         pub.read_publishable_text(path)
     path.write_text('Notes privées\n' + pub.START + '\nTexte validé\n' + pub.END + '\nSources privées')
     assert pub.read_publishable_text(path) == 'Texte validé'
+
+
+def test_cv_buffer_source_serves_only_matching_authorized_file(tmp_path):
+    import hashlib
+    import requests
+    from src.candidatures.upload import cv_buffer_source
+    path = tmp_path / 'cv.pdf'
+    path.write_bytes(b'authorized pdf bytes')
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    with cv_buffer_source(path, digest) as url:
+        response = requests.get(url, timeout=2)
+        assert response.content == path.read_bytes()
+        assert response.headers['Cache-Control'] == 'no-store'
+        assert requests.get(url + '/other', timeout=2).status_code == 404
+    with pytest.raises(ValueError, match='cv_changed_before_upload'):
+        with cv_buffer_source(path, 'different'):
+            pass
