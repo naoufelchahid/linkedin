@@ -1,0 +1,32 @@
+#!/usr/bin/python3
+"""Lance Playwright MCP avec son seul secret dédié, hors des arguments CLI."""
+import os
+from pathlib import Path
+import shutil
+import sys
+
+from dotenv import dotenv_values
+
+
+ROOT = Path(__file__).resolve().parents[1]
+NODE_BIN = Path('/home/naoufel/.nvm/versions/node/v24.14.0/bin')
+
+
+def main():
+    os.umask(0o077)
+    # Le serveur navigateur n'a besoin d'aucune clé Telegram ou API tierce.
+    env = {k: v for k, v in os.environ.items() if k in {
+        'HOME', 'USER', 'LOGNAME', 'PATH', 'LANG', 'LC_ALL', 'TZ',
+        'XDG_RUNTIME_DIR', 'DISPLAY', 'WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS'}}
+    env['PATH'] = str(NODE_BIN) + os.pathsep + env.get('PATH', '/usr/bin:/bin')
+    token = dotenv_values(ROOT / '.env.playwright').get('PLAYWRIGHT_MCP_EXTENSION_TOKEN')
+    if token:
+        env['PLAYWRIGHT_MCP_EXTENSION_TOKEN'] = token
+    npx = shutil.which('npx', path=env['PATH'])
+    if not npx:
+        raise SystemExit('npx introuvable pour Playwright MCP')
+    os.execve(npx, [npx, *sys.argv[1:]], env)
+
+
+if __name__ == '__main__':
+    main()

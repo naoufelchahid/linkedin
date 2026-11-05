@@ -1,0 +1,349 @@
+{
+  "date": "2026-11-05",
+  "option": "A",
+  "operations": [
+    {
+      "old": "brief.json",
+      "new": "references/publications/positionnement/brief.json",
+      "operation": "move",
+      "sha256_before": "72b28a5e6fd2b7e62c9897b7e8fddcf9802c0bf94bbc6f4e18703f65c607568a",
+      "sha256_after": "72b28a5e6fd2b7e62c9897b7e8fddcf9802c0bf94bbc6f4e18703f65c607568a"
+    },
+    {
+      "old": "src/strategy/strategie_lead_gen.md",
+      "new": "references/publications/strategie/strategie_lead_gen.md",
+      "operation": "move",
+      "sha256_before": "d2a3ca39cda5f8a35607473d1e4c81c4545a28b11588bfde88218b82aa583e4e",
+      "sha256_after": "c5f483316c511a8882eacd64c5792ea0e63d4ed1dd988d1b123b7990cc6edd2c"
+    },
+    {
+      "old": "src/strategy/contexte_lab_brand.md",
+      "new": "references/publications/strategie/contexte_lab_brand.md",
+      "operation": "move",
+      "sha256_before": "b978ebec4db500f434ba91e1f49c4c90e01bef2c61e17ef301d3d1de2cfb7cdd",
+      "sha256_after": "b978ebec4db500f434ba91e1f49c4c90e01bef2c61e17ef301d3d1de2cfb7cdd"
+    },
+    {
+      "old": "src/strategy/profile_copy.md",
+      "new": "references/publications/profil/profile_copy.md",
+      "operation": "move",
+      "sha256_before": "8d18d09b992beeed538930add3961f8b1b6223fb6020651edbcd19246d33f55b",
+      "sha256_after": "8d18d09b992beeed538930add3961f8b1b6223fb6020651edbcd19246d33f55b"
+    },
+    {
+      "old": "profile.json",
+      "new": "references/publications/profil/profile.json",
+      "operation": "move",
+      "sha256_before": "2a27e29f87d1ca44fede4e22cf64344a9b3a8689eef119cc18fed11da7d33bba",
+      "sha256_after": "2a27e29f87d1ca44fede4e22cf64344a9b3a8689eef119cc18fed11da7d33bba"
+    },
+    {
+      "old": "about_en.json",
+      "new": "references/publications/profil/about_en.json",
+      "operation": "move",
+      "sha256_before": "12f62a3b105925fcb53962d09b9a8d442a1666693a4bff2b9af8afe60af3abd6",
+      "sha256_after": "12f62a3b105925fcb53962d09b9a8d442a1666693a4bff2b9af8afe60af3abd6"
+    },
+    {
+      "old": "about_new.json",
+      "new": "references/publications/profil/about_new.json",
+      "operation": "move",
+      "sha256_before": "b251c465bb78f29c2d9f43608b2ef393abc83ca7217032814b3448f19c74ec30",
+      "sha256_after": "b251c465bb78f29c2d9f43608b2ef393abc83ca7217032814b3448f19c74ec30"
+    },
+    {
+      "old": "posts/drafts/2026-11-02_profil_linkedin_depuis_cv.md",
+      "new": "references/publications/profil/2026-11-02_profil_linkedin_depuis_cv.md",
+      "operation": "move",
+      "sha256_before": "a7504b1ab04fc4432d3a8f4f8795325418e8df3778e06096683988a570b22dd3",
+      "sha256_after": "cb3cf3a3a871e70de7317ef277820658ecd9a3fee77aece507da9c0a5b183e5c"
+    },
+    {
+      "old": "posts/drafts/2026-10-15_semaine_notes_editoriales.md",
+      "new": "references/publications/notes/2026-10-15_semaine_notes_editoriales.md",
+      "operation": "move",
+      "sha256_before": "85d760ba8b52b1c144e7c0cbb3680f77136def8351a472300ca4beac8980a41e",
+      "sha256_after": "423521cc79880ee03b8fd80971bc9a102a94d74a0fbdf2d28ea649bb63e9027d"
+    },
+    {
+      "old": "posts/drafts/ressource_grille_decision_prospection_b2b_ia.md",
+      "new": "references/publications/ressources/ressource_grille_decision_prospection_b2b_ia.md",
+      "operation": "move",
+      "sha256_before": "1c944fd19ea55f3a75bafa63db06a7bb792ae1ffd9fb2fc54fa217571a2decbb",
+      "sha256_after": "1c944fd19ea55f3a75bafa63db06a7bb792ae1ffd9fb2fc54fa217571a2decbb"
+    },
+    {
+      "old": "posts/drafts/assets/linkedin-banners-contexte-lab/01-ia-sans-contexte-1584x396.png",
+      "new": "references/publications/profil/assets/linkedin-banners-contexte-lab/01-ia-sans-contexte-1584x396.png",
+      "operation": "move",
+      "sha256_before": "85080ecb95e470b1ba824e45fe7acd7202f691b0e99a0c40284607d5ced985b7",
+      "sha256_after": "85080ecb95e470b1ba824e45fe7acd7202f691b0e99a0c40284607d5ced985b7"
+    },
+    {
+      "old": "posts/drafts/assets/linkedin-banners-contexte-lab/01-ia-sans-contexte.alt.txt",
+      "new": "references/publications/profil/assets/linkedin-banners-contexte-lab/01-ia-sans-contexte.alt.txt",
+      "operation": "move",
+      "sha256_before": "a059223fbc4dc3feb73ccd6eec2189aa9e4671ca07c8625143de09212e846cc6",
+      "sha256_after": "a059223fbc4dc3feb73ccd6eec2189aa9e4671ca07c8625143de09212e846cc6"
+    },
+    {
+      "old": "posts/drafts/assets/linkedin-banners-contexte-lab/02-prospection-outils-1584x396.png",
+      "new": "references/publications/profil/assets/linkedin-banners-contexte-lab/02-prospection-outils-1584x396.png",
+      "operation": "move",
+      "sha256_before": "300dad1a056126856ebba2aa7c8e5365b7f02c41092b53190d374d4055da4c3c",
+      "sha256_after": "300dad1a056126856ebba2aa7c8e5365b7f02c41092b53190d374d4055da4c3c"
+    },
+    {
+      "old": "posts/drafts/assets/linkedin-banners-contexte-lab/02-prospection-outils.alt.txt",
+      "new": "references/publications/profil/assets/linkedin-banners-contexte-lab/02-prospection-outils.alt.txt",
+      "operation": "move",
+      "sha256_before": "02fbf01d13972c9dfa824ce82381d9a2a09c0bd190c43118518d70a1ace74ff7",
+      "sha256_after": "02fbf01d13972c9dfa824ce82381d9a2a09c0bd190c43118518d70a1ace74ff7"
+    },
+    {
+      "old": "posts/drafts/assets/linkedin-banners-contexte-lab/03-contexte-opportunite-1584x396.png",
+      "new": "references/publications/profil/assets/linkedin-banners-contexte-lab/03-contexte-opportunite-1584x396.png",
+      "operation": "move",
+      "sha256_before": "380cb3ab3a3645a4832f6173b250a28d7d0258efd402351f1f1fbf807210f042",
+      "sha256_after": "380cb3ab3a3645a4832f6173b250a28d7d0258efd402351f1f1fbf807210f042"
+    },
+    {
+      "old": "posts/drafts/assets/linkedin-banners-contexte-lab/03-contexte-opportunite.alt.txt",
+      "new": "references/publications/profil/assets/linkedin-banners-contexte-lab/03-contexte-opportunite.alt.txt",
+      "operation": "move",
+      "sha256_before": "0d456713e09840e34d13ea81344985a7914f7716da2ccb444581bec51ecb657a",
+      "sha256_after": "0d456713e09840e34d13ea81344985a7914f7716da2ccb444581bec51ecb657a"
+    },
+    {
+      "old": "posts/drafts/assets/linkedin-banners-contexte-lab/04-ia-augmente-strategie-1584x396.png",
+      "new": "references/publications/profil/assets/linkedin-banners-contexte-lab/04-ia-augmente-strategie-1584x396.png",
+      "operation": "move",
+      "sha256_before": "2dda01cf6700736c61fda1b5e56d92b4239f9522eed504940dcf87c9b11c87ed",
+      "sha256_after": "2dda01cf6700736c61fda1b5e56d92b4239f9522eed504940dcf87c9b11c87ed"
+    },
+    {
+      "old": "posts/drafts/assets/linkedin-banners-contexte-lab/04-ia-augmente-strategie.alt.txt",
+      "new": "references/publications/profil/assets/linkedin-banners-contexte-lab/04-ia-augmente-strategie.alt.txt",
+      "operation": "move",
+      "sha256_before": "c8eb2470a6d7d38d3b8f2ff3321b898292fbeed416c863f346e96463b1682a74",
+      "sha256_after": "c8eb2470a6d7d38d3b8f2ff3321b898292fbeed416c863f346e96463b1682a74"
+    },
+    {
+      "old": "posts/drafts/assets/linkedin-banners-contexte-lab/05-ciblage-crm-1584x396.png",
+      "new": "references/publications/profil/assets/linkedin-banners-contexte-lab/05-ciblage-crm-1584x396.png",
+      "operation": "move",
+      "sha256_before": "6594f0fd31692e9c33ad5ca62df69443e55bea35b23bcaf73609086b50a22f26",
+      "sha256_after": "6594f0fd31692e9c33ad5ca62df69443e55bea35b23bcaf73609086b50a22f26"
+    },
+    {
+      "old": "posts/drafts/assets/linkedin-banners-contexte-lab/05-ciblage-crm.alt.txt",
+      "new": "references/publications/profil/assets/linkedin-banners-contexte-lab/05-ciblage-crm.alt.txt",
+      "operation": "move",
+      "sha256_before": "4c50a166c2b3f55fdec44479ee6e2be2a322d2a4ee9f2811c0df1cb7eaf0509d",
+      "sha256_after": "4c50a166c2b3f55fdec44479ee6e2be2a322d2a4ee9f2811c0df1cb7eaf0509d"
+    },
+    {
+      "old": "linkpost-quatre-formats-pack (1)/DEMARRAGE.txt",
+      "new": "posts/archives/legacy/linkpost/DEMARRAGE.txt",
+      "operation": "move",
+      "sha256_before": "0897a7d8a121001debfa8e2b735111003b7603bcb4fe9c02ce6485c634af9c07",
+      "sha256_after": "0897a7d8a121001debfa8e2b735111003b7603bcb4fe9c02ce6485c634af9c07"
+    },
+    {
+      "old": "linkpost-quatre-formats-pack (1)/INSTALLATION.md",
+      "new": "posts/archives/legacy/linkpost/INSTALLATION.md",
+      "operation": "move",
+      "sha256_before": "9ec6027ebb6fa37683848b8bdae6d2a09de86cec15d6b006313b313a5efed4a5",
+      "sha256_after": "9ec6027ebb6fa37683848b8bdae6d2a09de86cec15d6b006313b313a5efed4a5"
+    },
+    {
+      "old": "linkpost-quatre-formats-pack (1)/INSTRUCTIONS-CHATGPT.txt",
+      "new": "posts/archives/legacy/linkpost/INSTRUCTIONS-CHATGPT.txt",
+      "operation": "move",
+      "sha256_before": "5d1bcb79c48ac3d3815f2cd32184239b1e0ec3e8e445b6e7d02f0145611578ab",
+      "sha256_after": "5d1bcb79c48ac3d3815f2cd32184239b1e0ec3e8e445b6e7d02f0145611578ab"
+    },
+    {
+      "old": "linkpost-quatre-formats-pack (1)/LINKPOST-CHATGPT.md",
+      "new": "posts/archives/legacy/linkpost/LINKPOST-CHATGPT.md",
+      "operation": "move",
+      "sha256_before": "147d24d31640d28c697c2176a8e6e91351dd2c477db907fa4b24de138d2c0650",
+      "sha256_after": "147d24d31640d28c697c2176a8e6e91351dd2c477db907fa4b24de138d2c0650"
+    },
+    {
+      "old": "linkpost-quatre-formats-pack (1)/linkpost-quatre-formats-claude.zip",
+      "new": "posts/archives/legacy/linkpost/linkpost-quatre-formats-claude.zip",
+      "operation": "move",
+      "sha256_before": "20305ab832fbe13c787086022d56cc6292173e75dbcbddbb83ef903593cd5437",
+      "sha256_after": "20305ab832fbe13c787086022d56cc6292173e75dbcbddbb83ef903593cd5437"
+    },
+    {
+      "old": "prompt-memoire.txt",
+      "new": "posts/archives/legacy/prompt-memoire.txt",
+      "operation": "move",
+      "sha256_before": "1e101bf4cd3f771ce8a69ac2bb97dbd05f9b37afe0c31f102ebc653fff417755",
+      "sha256_after": "1e101bf4cd3f771ce8a69ac2bb97dbd05f9b37afe0c31f102ebc653fff417755"
+    },
+    {
+      "old": "1788427642790.jpeg",
+      "new": "references/publications/ressources/assets/1788427642790-ai-rewards-aim.jpeg",
+      "operation": "move",
+      "sha256_before": "48b848639e1c2770cd1bb3355c7afced1dac5fd1c07578e7a311268c3fe1ab01",
+      "sha256_after": "48b848639e1c2770cd1bb3355c7afced1dac5fd1c07578e7a311268c3fe1ab01"
+    },
+    {
+      "old": "Naoufel_Chahid_CV_Francais.pdf",
+      "new": "data/candidatures/references/cv/Naoufel_Chahid_CV_Francais.pdf",
+      "operation": "move",
+      "sha256_before": "49d1eb93b19f0e0ef6619565eea1e84fccecb461d867ece64c870a57ff028294",
+      "sha256_after": "49d1eb93b19f0e0ef6619565eea1e84fccecb461d867ece64c870a57ff028294"
+    },
+    {
+      "old": "output/pdf/Naoufel_Chahid_CV_Francais_Contexte_Lab.pdf",
+      "new": "data/candidatures/references/cv/Naoufel_Chahid_CV_Francais_Contexte_Lab.pdf",
+      "operation": "move",
+      "sha256_before": "30df8a01be5eb3fab39705cfc24a084ba5a2382f7f38b978e41a5b2771722c10",
+      "sha256_after": "30df8a01be5eb3fab39705cfc24a084ba5a2382f7f38b978e41a5b2771722c10"
+    },
+    {
+      "old": "data/research/2026-10-14_posts_ia_vente_interactions.md",
+      "new": "data/publications/research/2026-10-14_posts_ia_vente_interactions.md",
+      "operation": "move",
+      "sha256_before": "ef4ae1be7d11d538ca6898cc448977c4c43b5cdd44e82751b5a17e6152a2e4d0",
+      "sha256_after": "ef4ae1be7d11d538ca6898cc448977c4c43b5cdd44e82751b5a17e6152a2e4d0"
+    },
+    {
+      "old": "data/candidatures/pilot-keyrus-revision.json",
+      "new": "data/candidatures/diagnostics/2026-11-05/pilot-keyrus-revision.json",
+      "operation": "move",
+      "sha256_before": "7b51191885f1b157ddeca1c00bd3c6b507b60fd072fd5e86100df781be9e25a7",
+      "sha256_after": "7b51191885f1b157ddeca1c00bd3c6b507b60fd072fd5e86100df781be9e25a7"
+    },
+    {
+      "old": "data/candidatures/pilot-result.json",
+      "new": "data/candidatures/diagnostics/2026-11-05/pilot-result.json",
+      "operation": "move",
+      "sha256_before": "103aaa3c8bce218517c382aa9d4f7841534bb87d00e29fbe6a5158768bd27936",
+      "sha256_after": "103aaa3c8bce218517c382aa9d4f7841534bb87d00e29fbe6a5158768bd27936"
+    },
+    {
+      "old": "data/candidatures/pilot-compatible-result.json",
+      "new": "data/candidatures/diagnostics/2026-11-05/pilot-compatible-result.json",
+      "operation": "move",
+      "sha256_before": "c9f8a7b731c4babe4c8f3c41dbd65c6ca5a96239ab1fdbe8a515a38a02af86a5",
+      "sha256_after": "c9f8a7b731c4babe4c8f3c41dbd65c6ca5a96239ab1fdbe8a515a38a02af86a5"
+    },
+    {
+      "old": "data/candidatures/pilot-discovery.json",
+      "new": "data/candidatures/diagnostics/2026-11-05/pilot-discovery.json",
+      "operation": "move",
+      "sha256_before": "f53f7db754d15b972bc0c53ef152980b1235b59ecfd03ffe1fdfbd0d3dad673c",
+      "sha256_after": "f53f7db754d15b972bc0c53ef152980b1235b59ecfd03ffe1fdfbd0d3dad673c"
+    },
+    {
+      "old": "data/candidatures/chrome-bundled-probe.json",
+      "new": "data/candidatures/diagnostics/2026-11-05/chrome-bundled-probe.json",
+      "operation": "move",
+      "sha256_before": "22e3beee68d8de5d794ed64ab220642a3359ddacf90be2a7feae8f31b1a94cdc",
+      "sha256_after": "22e3beee68d8de5d794ed64ab220642a3359ddacf90be2a7feae8f31b1a94cdc"
+    },
+    {
+      "old": "posts/published/2026-09-03_ai_ne_recompense_pas_la_vitesse.md",
+      "new": "posts/published/2026/09/7501603013103378432/post.md",
+      "operation": "move",
+      "sha256_before": "5c67cc69a08cd254110850ab5c22d913dd56b394b638aadb9d54c947df5af512",
+      "sha256_after": "5c67cc69a08cd254110850ab5c22d913dd56b394b638aadb9d54c947df5af512"
+    },
+    {
+      "old": "posts/published/assets/2026-09-03_ai_vitesse_precision_editorial-v2.png",
+      "new": "posts/published/2026/09/7501603013103378432/assets/2026-09-03_ai_vitesse_precision_editorial-v2.png",
+      "operation": "move",
+      "sha256_before": "6c691f54cb22bbdf815979a5c7cf2de220d55eee8ce23391388e96cd6a37d105",
+      "sha256_after": "6c691f54cb22bbdf815979a5c7cf2de220d55eee8ce23391388e96cd6a37d105"
+    },
+    {
+      "old": "posts/published/assets/2026-09-03_ai_vitesse_precision_editorial-v2.alt.txt",
+      "new": "posts/published/2026/09/7501603013103378432/assets/2026-09-03_ai_vitesse_precision_editorial-v2.alt.txt",
+      "operation": "move",
+      "sha256_before": "74d53b4c675aba15cbf8208527858085e335e404e02144abc96f254f9696fd6a",
+      "sha256_after": "74d53b4c675aba15cbf8208527858085e335e404e02144abc96f254f9696fd6a"
+    },
+    {
+      "old": "posts/published/2026-09-09_avantage_concurrentiel_ia_full_context.md",
+      "new": "posts/published/2026/09/7503445505792909312/post.md",
+      "operation": "move",
+      "sha256_before": "bf67c1a156e53975cf12081d7db565585279104b67620c0082cde4cc44b36bd0",
+      "sha256_after": "bf67c1a156e53975cf12081d7db565585279104b67620c0082cde4cc44b36bd0"
+    },
+    {
+      "old": "posts/published/assets/2026-09-09_ia_contexte_avantage.png",
+      "new": "posts/published/2026/09/7503445505792909312/assets/2026-09-09_ia_contexte_avantage.png",
+      "operation": "move",
+      "sha256_before": "abf2746d047f5671eef6bfc2ec92ce8406e99b20fdbb36e5dccee5ce40e91dda",
+      "sha256_after": "abf2746d047f5671eef6bfc2ec92ce8406e99b20fdbb36e5dccee5ce40e91dda"
+    },
+    {
+      "old": "posts/published/assets/2026-09-09_ia_contexte_avantage.alt.txt",
+      "new": "posts/published/2026/09/7503445505792909312/assets/2026-09-09_ia_contexte_avantage.alt.txt",
+      "operation": "move",
+      "sha256_before": "1004aecec658b236a451431251b3b58877875bba52dbdae8bab1eaf1b471367a",
+      "sha256_after": "1004aecec658b236a451431251b3b58877875bba52dbdae8bab1eaf1b471367a"
+    },
+    {
+      "old": "posts/published/assets/2026-09-09_ia_contexte_avantage.prompt.txt",
+      "new": "posts/published/2026/09/7503445505792909312/assets/2026-09-09_ia_contexte_avantage.prompt.txt",
+      "operation": "move",
+      "sha256_before": "8d1e63a7353092a25a79fba74080cbfdceb6c38ad4c3cc12e622f1cd5125b002",
+      "sha256_after": "8d1e63a7353092a25a79fba74080cbfdceb6c38ad4c3cc12e622f1cd5125b002"
+    },
+    {
+      "old": "posts/published/2026-09-22_nouveaute_modele_decision_jev.md",
+      "new": "posts/published/2026/09/7507924145058299904/post.md",
+      "operation": "move",
+      "sha256_before": "1e4d1a9e754073eb8c950110b331153f4442a870d5db8e0edbd03713ab4333d2",
+      "sha256_after": "1e4d1a9e754073eb8c950110b331153f4442a870d5db8e0edbd03713ab4333d2"
+    },
+    {
+      "old": "posts/published/assets/jev.jpg",
+      "new": "posts/published/2026/09/7507924145058299904/assets/jev.jpg",
+      "operation": "move",
+      "sha256_before": "39d2cd8be05dbf41c530a5f473680a2ac5d9be21373f38cc5a5cdbb20c2f71b8",
+      "sha256_after": "39d2cd8be05dbf41c530a5f473680a2ac5d9be21373f38cc5a5cdbb20c2f71b8"
+    },
+    {
+      "old": "posts/drafts/2026-09-22_nouveaute_modele_decision_jev.md",
+      "new": "posts/archives/legacy/published-drafts/2026-09-22_nouveaute_modele_decision_jev.md",
+      "operation": "move",
+      "sha256_before": "e201fa57818b860dd5d047de40a2a433dae4134a5dab4d20b05563a70b9426d9",
+      "sha256_after": "e201fa57818b860dd5d047de40a2a433dae4134a5dab4d20b05563a70b9426d9"
+    },
+    {
+      "old": "posts/drafts/2026-09-22_nouveaute_modele_decision_jev.alt.txt",
+      "new": "posts/published/2026/09/7507924145058299904/assets/jev.alt.txt",
+      "operation": "move",
+      "sha256_before": "1b0f2ae9ce8ce2818fd03e649bc7d088f9af011996d2c7514358780ac921e8b0",
+      "sha256_after": "1b0f2ae9ce8ce2818fd03e649bc7d088f9af011996d2c7514358780ac921e8b0"
+    },
+    {
+      "old": "about.json",
+      "new": "references/publications/profil/about_en.json",
+      "operation": "deduplicate_identical",
+      "sha256_before": "12f62a3b105925fcb53962d09b9a8d442a1666693a4bff2b9af8afe60af3abd6",
+      "sha256_after": "12f62a3b105925fcb53962d09b9a8d442a1666693a4bff2b9af8afe60af3abd6"
+    },
+    {
+      "old": "message-demarrage (1).txt",
+      "new": "posts/archives/legacy/linkpost/DEMARRAGE.txt",
+      "operation": "deduplicate_identical",
+      "sha256_before": "0897a7d8a121001debfa8e2b735111003b7603bcb4fe9c02ce6485c634af9c07",
+      "sha256_after": "0897a7d8a121001debfa8e2b735111003b7603bcb4fe9c02ce6485c634af9c07"
+    },
+    {
+      "old": "posts/drafts/assets/jev.jpg",
+      "new": "posts/published/2026/09/7507924145058299904/assets/jev.jpg",
+      "operation": "deduplicate_identical",
+      "sha256_before": "39d2cd8be05dbf41c530a5f473680a2ac5d9be21373f38cc5a5cdbb20c2f71b8",
+      "sha256_after": "39d2cd8be05dbf41c530a5f473680a2ac5d9be21373f38cc5a5cdbb20c2f71b8"
+    }
+  ]
+}
