@@ -1,0 +1,107 @@
+# Graphe 2 — Soumission des candidatures par lot
+
+Status: ready-for-agent
+
+## Problem Statement
+
+Après la qualification, le candidat dispose d’un lot d’offres retenues. Il doit encore remplir des formulaires différents, retrouver les pièces appropriées et suivre les dépôts sur plusieurs sites. Une interruption après le clic final peut conduire à candidater deux fois. Une question sans réponse sur une offre peut retarder toutes les autres.
+
+## Solution
+
+Le candidat choisit un lot de découverte dans le tableau de bord et clique sur « Lancer les candidatures ». Le graphe 2 traite Easy Apply et les portails employeurs, réutilise les réponses confirmées et conserve la progression de chaque dossier. Une confirmation de dépôt fait sortir l’offre du pipe. Lorsqu’une adresse de recrutement figure dans l’annonce, le candidat reçoit sur Telegram un mail d’appui à valider, avec son CV et sa lettre.
+
+## User Stories
+
+1. En tant que candidat, je veux voir combien d’offres sont prioritaires et combien sont retenues avec incertitude afin de choisir le lot à lancer.
+2. En tant que candidat, je veux lancer explicitement chaque nouveau lot afin de garder la main sur les offres traitées.
+3. En tant que candidat, je veux que mon verdict individuel prime et que les offres retenues avec incertitude passent en dernier afin de traiter d’abord les correspondances établies.
+4. En tant que candidat, je veux retrouver un seul dossier par offre, même entre lots simultanés, afin d’éviter les doubles dépôts.
+5. En tant que candidat, je veux voir Codex renseigner Easy Apply dans ma session LinkedIn et remplir les formulaires externes afin de pouvoir suivre la saisie.
+6. En tant que candidat, je veux réutiliser ma session employeur et décider une seule fois par portail si une inscription indispensable est permise afin de limiter les sollicitations.
+7. En tant que candidat, je veux être averti sur Telegram lorsqu’un CAPTCHA ou un code apparaît afin de le traiter moi-même dans le navigateur.
+8. En tant que candidat, je veux que l’agent utilise mon CV de référence et mes réponses confirmées afin que mes déclarations soient exactes.
+9. En tant que candidat, je veux recevoir sur Telegram les questions indispensables encore sans réponse et choisir pour chaque réponse si elle pourra être réutilisée avec son contexte.
+10. En tant que candidat, je veux que les autres offres avancent pendant mon absence et que le dossier reprenne au bon endroit à ma réponse.
+11. En tant que candidat, je veux connaître le prérequis qui empêche un dépôt afin de comprendre pourquoi une offre retenue reste dans le pipe.
+12. En tant que candidat, je veux une lettre PDF dans la langue de l’offre, adaptée au poste, à l’employeur et au type de contrat, afin de joindre une pièce appropriée.
+13. En tant que candidat, je veux que les nouveaux dépôts reprennent le lendemain lorsque 40 dépôts sont confirmés pour la journée afin de répartir le lot dans le temps.
+14. En tant que candidat, je veux qu’un envoi incertain reste à vérifier, sans réserver une place dans le seuil, afin de poursuivre les offres restantes.
+15. En tant que candidat, je veux que l’agent consulte le suivi du portail après un clic au résultat inconnu et me consulte si le doute persiste afin d’éviter un nouvel envoi accidentel.
+16. En tant que candidat, je veux que la base et le tableau reflètent le dépôt confirmé, y compris après une confirmation tardive, afin de connaître le total réel.
+17. En tant que candidat, je veux un mail d’appui personnalisé pour le recruteur indiqué dans l’annonce et la mention « non disponible » quand son adresse manque afin de savoir quelles candidatures ont pu être accompagnées.
+18. En tant que candidat, je veux vérifier le brouillon sur Telegram avant son envoi afin de maîtriser le message adressé en mon nom.
+19. En tant que candidat, je veux que le mail contienne le CV de référence et la bonne lettre de motivation, même si le portail n’a demandé aucune lettre.
+20. En tant que candidat, je veux que l’échec éventuel du mail soit suivi séparément afin de conserver la preuve du dépôt et d’éviter une nouvelle candidature.
+21. En tant que candidat, je veux essayer les deux parcours dans les conditions réelles de production, jusqu’à la dernière étape du formulaire et à la préparation du mail, afin de juger le fonctionnement avant tout envoi.
+
+## Implementation Decisions
+
+Le [guide de construction](./architecture.md) relie le lancement depuis le tableau de bord aux nœuds LangGraph, aux deux rôles Codex et aux conditions de reprise.
+
+- Le lancement du lot réveille un processus Python local indépendant du tableau de bord. Fermer la page laisse le traitement se poursuivre. Après un arrêt du processus, sa relance reprend les lots autorisés et leurs dossiers. Le démarrage automatique au démarrage de la machine reste une décision distincte.
+- Le projet définit les outils autorisés de chaque rôle App Server. Le navigateur dispose de Browsentic. Le rédacteur dispose des outils locaux nécessaires pour modifier le DOCX, exporter le PDF et contrôler son rendu. L’ajout d’un MCP dans la configuration personnelle du candidat ne change pas les outils accessibles au graphe. Python pilote Telegram et la messagerie.
+
+- Chaque offre possède un fil LangGraph unique, stable et persistant entre lots. Python peut reconstruire le contexte de travail après la perte d’une conversation Codex. [Décision de reprise par offre](./adr/0001-reprise-par-offre.md)
+- Deux rôles Codex interviennent via App Server. L’agent navigateur pilote le parcours via Browsentic jusqu’à la validation et peut enchaîner plusieurs écrans de saisie. L’agent rédacteur prend en charge toute la production de la lettre. Il travaille sur une copie du DOCX Inwi, rédige, met en page, exporte en PDF et contrôle le rendu. Il remet au graphe la référence du PDF final propre au dossier. Il prépare aussi le brouillon du mail. Python gère SQLite, les échanges Telegram, le contrôle de la version du brouillon et l’appel au service de messagerie.
+- Python lance `codex app-server --stdio` à la demande pour chaque rôle actif, avec une configuration MCP explicite par rôle. Le navigateur conserve sa conversation pendant la navigation continue sur une offre. Lors d’une attente prolongée, le processus peut être fermé. À la reprise, le dossier retrouve son fil LangGraph et Python peut ouvrir une nouvelle conversation Codex. Le rédacteur travaille dans sa propre conversation.
+- En production, lancer le lot vaut accord pour les dépôts de ce lot. Avant le premier geste susceptible de transmettre le formulaire, Codex rend la main au graphe. Python applique les contrôles du dernier geste et enregistre durablement la tentative avant d’autoriser Codex à transmettre dans le navigateur. En recette, le graphe s’arrête avant ce geste. L’accord Telegram sur la version du mail reste requis pour son envoi.
+
+- Le tableau de bord reprend la sélection du cycle de découverte et le verdict applicable à la version examinée. Le lancement autorise le traitement et les reprises de ce lot. Chaque nouveau lot requiert son propre lancement.
+- LangGraph orchestre les dossiers. Codex App Server utilise Browsentic pour la saisie directe. Tout navigateur lancé ou repris par un agent doit être visible (`headless=false`), en recette comme en production. Un seul agent pilote le navigateur à la fois, tous lots confondus, avec un onglet identifié par dossier. Pendant une intervention humaine, il laisse cet onglet au candidat et peut traiter une autre offre dans son propre onglet. Le rédacteur peut travailler en parallèle. La session LinkedIn reste dans le profil visible du candidat. Les annonces et les documents fournissent des données. Les instructions d’action proviennent du graphe et du candidat.
+- Le checkpoint LangGraph est l’unique source de reprise de chaque dossier, pour le formulaire comme pour le mail. Les liens de lots, compteurs et vues du tableau peuvent être indexés en SQLite. La reprise lit le checkpoint du fil. Le graphe persiste synchroniquement la tentative ouverte avant d’autoriser l’effet externe. Après une panne, une tentative ouverte impose une vérification, y compris si le dernier nœud aurait normalement effectué le clic ou l’appel de messagerie. Une reprise, un double clic ou deux lots concurrents doivent retrouver le même dossier. Une seule tentative de dépôt peut être active pour cette offre.
+- Un besoin d’intervention suspend le dossier concerné. Lier chaque réponse Telegram à sa question, à son dossier et, pour une inscription, au portail concerné. Après saisie de chaque réponse de formulaire, présenter deux boutons Telegram liés à cette question. « Envoyer et garder en mémoire » transmet la réponse au dossier et autorise son ajout au Markdown privé avec sa portée. « Envoyer sans garder en mémoire » conserve le texte dans le checkpoint privé de cette offre pour la reprise après panne. Seul ce dossier peut recevoir cette réponse dans son contexte. Un clic répété traite le choix une seule fois. Les secrets de connexion et les codes à usage unique restent hors de cette mémoire.
+- Fournir la réponse exacte à un prérequis et poursuivre si le site l’accepte. Si le formulaire empêche le dépôt, garder le motif et le statut non soumis. Enregistrer séparément les problèmes techniques et le verdict de qualification d’origine.
+- Avant un dépôt, consulter le total quotidien de candidatures confirmées, tous lots confondus. À 40 ou plus, reporter les prochains dépôts au lendemain en conservant leur ordre. Un envoi à vérifier ne réserve aucune place. Enregistrer intégralement une confirmation tardive, même si le total passe à 41.
+- Après une interruption susceptible de suivre le clic final, consulter d’abord le suivi du portail. Une réception attestée marque l’offre « soumise » une seule fois. En cas de doute persistant, attendre la décision sur Telegram avant toute nouvelle tentative. La reprise du mail ne relance jamais le formulaire.
+- Rédiger en français ou en anglais selon l’annonce. Personnaliser une copie du canevas Inwi et produire un PDF. Adapter l’objet, l’accroche, les expériences attestées, la contribution et la conclusion. Distinguer emploi salarié et mission freelance. Quand l’offre ne précise aucun contrat, employer une formulation neutre.
+- Utiliser exclusivement l’adresse de recrutement indiquée dans l’annonce. Si elle manque, enregistrer « non disponible » et poursuivre. Sinon, l’objet du mail indique l’intitulé exact du poste, la référence éventuelle et le nom complet du candidat. Le corps de 4 à 8 lignes relie un besoin de l’offre à une ou deux compétences attestées et propose un échange.
+- Appliquer Humanizer à chaque brouillon, contrôler l’orthographe et l’exactitude, puis vérifier les deux pièces jointes, leur lisibilité et leur correspondance avec le dossier. Réutiliser la lettre déposée ou la produire pour le mail. Après validation du brouillon par le candidat sur Telegram, envoyer le mail au recruteur et enregistrer le résultat.
+
+### Règles de dépôt et de reprise validées
+
+- **Sélection.** Pour la version examinée, un verdict individuel « retenir » place l’offre dans le groupe prioritaire et « écarter » l’exclut. À défaut de verdict individuel, appliquer le verdict Codex et son indicateur d’incertitude. Le tableau et le lancement utilisent la même sélection. Conserver le résultat Codex d’origine.
+- **Identité.** Pour Easy Apply et External, le graphe 1 compare uniquement le champ `url` de l’annonce LinkedIn. Une même page donne une offre de référence, un dossier et un fil LangGraph entre tous les lots. Les anciens identifiants rattachés retrouvent le même suivi. Une confirmation clôt le dossier et compte une fois. Pour External, le graphe 2 ouvre cette page puis suit « Postuler » vers le portail employeur. [Règle de découverte et traitement de l’historique](../../graphe1/docs/conception.md#phase-anti-doublon-demandée-pour-les-collectes)
+- **Pièces et reprise.** Au début de la préparation, figer la version examinée de l’annonce et le PDF du CV de son cycle. Si un autre lot retrouve la même offre, reprendre ses pièces et ses questions en cours. Si la nouvelle version change la destination ou la référence employeur, suspendre le dépôt jusqu’à résolution de l’écart.
+- **Dernier geste.** Les lots peuvent préparer plusieurs dossiers en parallèle. Faire passer un seul dépôt à la fois, tous lots confondus, depuis le contrôle du seuil quotidien jusqu’à la confirmation ou au classement « envoi à vérifier ». Enregistrer durablement la tentative avant la première action capable de transmettre le formulaire. Après redémarrage, toute tentative ouverte impose de consulter le suivi du portail avant un nouveau geste d’envoi. En cas de doute persistant, conserver l’attente Telegram sur ce dossier et poursuivre les autres.
+- **Jour du dépôt.** Compter chaque dépôt confirmé une seule fois, à la date locale `Africa/Casablanca` de l’envoi attesté par le portail. Si l’heure de dépôt est inconnue ou peu fiable, utiliser celle de la première confirmation observée. Conserver l’origine de cet horodatage. La relecture d’un reçu ne modifie pas le compteur.
+- **Mail.** L’accord Telegram porte sur une version précise du destinataire, de l’objet, du corps et des deux PDF. Toute modification avant l’envoi exige la validation de la version modifiée. Enregistrer la tentative avant l’appel au service de messagerie. Si la réponse se perd, vérifier si le service a accepté ce mail. Si le doute persiste, conserver « mail à vérifier », sans réexpédition automatique. Le dépôt conserve sa preuve et son statut « soumise ».
+
+## Testing Decisions
+
+**Recette validée par le candidat.** Utiliser un seul point d’entrée, le lancement puis la reprise d’un lot depuis le tableau de bord. Exécuter le graphe avec Codex App Server, Browsentic, la session LinkedIn, les formulaires employeurs, le CV et le canevas de référence, la mémoire privée, Telegram et la préparation du mail dans les conditions réelles de production. Choisir des offres réelles couvrant Easy Apply et un portail externe. Observer les effets depuis le navigateur, Telegram, les pièces produites et le tableau de suivi.
+
+**Arrêt de l’essai.** Sur chaque formulaire, atteindre la dernière étape sûre et relever les pièces et réponses préparées. Si une action intermédiaire peut également transmettre la candidature, s’arrêter avant cette action. Pour tester le mail, ouvrir un aperçu ou un brouillon d’essai à partir du dossier préparé. Même une validation du brouillon pendant la recette ne déclenche aucun envoi. Les reprises, y compris le lendemain, conservent cette limite. Distinguer le suivi d’essai du suivi des dépôts réels. Un dossier arrêté avant envoi reste dans le pipe, ne compte pas dans le seuil et reste disponible pour un dépôt ultérieur.
+
+| Parcours réel | Observation attendue |
+| --- | --- |
+| Lancer un lot et reprendre une offre présente dans deux lots | Les compteurs correspondent à la sélection du cycle. Les offres prioritaires précèdent les incertaines. Un seul dossier est préparé par offre. |
+| Renseigner Easy Apply puis un portail externe | Vérifier le mode visible au lancement et après reprise. Pendant une intervention humaine dans un onglet, vérifier que l’agent peut travailler dans un autre sans reprendre le focus ni agir sur le formulaire confié au candidat. La saisie est visible, les réponses sont exactes et les pièces correspondent au poste. L’essai s’arrête avant la transmission finale sur les deux parcours. |
+| Répondre à une question sur Telegram puis reprendre le lot | Les autres offres disponibles avancent. Tester les deux boutons et un double clic. Interrompre après le choix et avant la saisie du champ. Dans les deux cas, le bon dossier retrouve la réponse et reprend une seule fois. Sur une autre offre comparable, seule la réponse envoyée avec mémorisation est proposée. |
+| Rencontrer un prérequis bloquant, une inscription obligatoire ou une vérification humaine | Observer la branche effectivement rencontrée. L’agent respecte le fait déclaré, la décision propre au portail et l’intervention du candidat dans le navigateur. |
+| Préparer les documents et le mail d’essai | Vérifier la langue, la personnalisation et le PDF rendu. Si l’annonce fournit une adresse, examiner le brouillon avec le CV et la lettre joints. Sinon, vérifier la mention « non disponible ». |
+| Terminer ou reprendre une recette | Aucun formulaire déposé, aucun mail expédié, aucune candidature marquée soumise et aucun dépôt ajouté au décompte quotidien du fait de l’essai. |
+
+Les tests existants du graphe 1 fournissent des précédents pour vérifier la sélection humaine, la déduplication, une reprise après panne et une opération externe à l’issue inconnue. La recette du graphe 2 repose sur les parcours réels. Consigner comme non observées les branches absentes des offres essayées. La réception par le portail, une interruption après dépôt, la confirmation tardive et la livraison effective du mail restent des critères du fonctionnement en production. Un essai arrêté avant envoi ne peut pas les attester.
+
+### Huit fixtures locales à implémenter
+
+Utiliser une base SQLite de test sur disque, réouverte après chaque panne simulée. Le faux portail et le faux service de messagerie tiennent chacun leur propre journal des transmissions reçues, y compris lorsque la réponse au graphe est perdue. Comparer ces journaux à l’état du dossier et aux compteurs du tableau. Commencer par les trois premiers scénarios.
+
+| Fixture | Situation et incident | Critères d’acceptation |
+| --- | --- | --- |
+| `panne_autour_du_clic` | Interrompre après le checkpoint durable de la tentative, (a) avant le clic ou (b) après réception par le portail et avant le checkpoint de confirmation. | Dans les deux cas, la reprise consulte d’abord le suivi. En (a), si le suivi est muet, le dossier attend la décision Telegram, les autres offres avancent et le journal compte zéro dépôt pour ce dossier. En (b), le reçu de l’offre clôt le dossier et le journal compte un seul dépôt. |
+| `deux_annonces_un_depot` | Deux lots retrouvent la même page LinkedIn avec des paramètres de suivi différents. Rejouer avec deux pages LinkedIn distinctes ayant le même `companyUrl` et le même portail externe. | Avec la même page, un dossier, un fil, un clic et une preuve accessible depuis les deux lots. Avec deux pages, les dossiers et les dépôts restent indépendants. |
+| `deux_lots_a_39` | Partir de 39 confirmations. Deux lots sont prêts. Le premier dépôt reçoit une confirmation immédiate ou passe en vérification. | Confirmation immédiate : le second attend le lendemain. Issue inconnue : le second peut partir. Si les deux dépôts sont ensuite attestés pour ce jour, le total atteint 41. |
+| `confirmation_a_minuit` | Dépôt attesté lundi à 23 h 59, reçu découvert mardi à 00 h 03 puis relu après redémarrage. Rejouer sans heure de dépôt fiable. | Avec l’heure attestée, lundi gagne une unité. À défaut, mardi gagne une unité. La base indique la provenance de la date. La relecture conserve les deux totaux. |
+| `dossier_en_attente_nouveau_lot` | Une question porte sur l’annonce V1 avec le CV A. Un autre lot retrouve la même offre en V2 avec le CV B, puis la réponse Telegram arrive. | Un seul dossier. La réponse rejoint sa question et la tentative conserve V1 et le PDF A. Si V2 a changé la destination ou la référence, le dépôt reste suspendu jusqu’à résolution de l’écart. |
+| `correction_humaine_et_priorite` | Codex retient A sans incertitude et B avec incertitude. Le candidat retient C que Codex avait écartée et écarte D que Codex avait retenue. | Le tableau annonce deux prioritaires et une incertaine. A et C précèdent B. D est exclue du lot. Les quatre résultats Codex restent consultables. |
+| `mail_accepte_reponse_perdue` | Le service accepte le brouillon validé puis sa réponse se perd. Tester la reprise avec et sans preuve d’acceptation. Dans une variante, modifier le brouillon ou une pièce après validation mais avant envoi. | Un seul mail reçu. La reprise vérifie son sort et conserve « mail à vérifier » si la preuve manque. Le dossier reste soumis. Dans la variante, la nouvelle version attend un nouvel accord et le journal reste vide jusque-là. |
+| `recette_reprise_le_lendemain` | En recette, atteindre la dernière étape sûre, valider l’aperçu du mail sur Telegram et redémarrer le lendemain. Inclure un formulaire dont une action intermédiaire transmet déjà le dossier. | Arrêt avant toute action capable de transmettre. Après reprise, les deux journaux sont vides, le compteur est inchangé et l’offre reste dans le pipe, disponible pour un lancement réel ultérieur. |
+
+## Out of Scope
+
+Le pilote ne modifie pas les règles de qualification du graphe 1. La recherche d’adresses de recruteurs, les séquences de relance, la résolution automatisée des CAPTCHA et l’activation de services système sont hors périmètre.
+
+## Further Notes
+
+Le candidat a validé le graphe Mermaid présenté en HTML. Ses trois vues couvrent le lancement du lot, le remplissage et les reprises, puis le dépôt et le mail au recruteur. La compatibilité de Browsentic avec les formulaires réels sera vérifiée pendant la recette. Les pièces personnelles, cookies et réponses du candidat restent dans le stockage privé.

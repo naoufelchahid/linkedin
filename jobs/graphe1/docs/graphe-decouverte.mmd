@@ -1,0 +1,19 @@
+flowchart TD
+    subgraph DISC["1 · Découverte Apify"]
+        A["Déclenchement quotidien à 21 h · Casablanca"] --> B["Charger les trois recherches configurées pour le pilote<br/>Maroc · Offres des 7 derniers jours<br/>Figer le CV et le prompt pour le cycle"]
+        B --> C["API Apify · valig/linkedin-jobs-scraper<br/>Un run par profil · limit = 100"]
+        C --> D["Conserver les identifiants des runs<br/>Attendre les runs au plus 15 min, configurable<br/>Conserver les résultats disponibles et les échecs<br/>Lot incomplet si run manquant ; récupérer ensuite les résultats tardifs"]
+        D --> ID["Comparer le champ url de l’annonce LinkedIn avec la collecte et la base<br/>Rattacher le doublon à l’offre existante"]
+        ID --> VER["Comparer les versions : annonce, CV et prompt<br/>Réutiliser si identiques ; sinon qualifier"]
+        VER -->|Qualification requise| QUAL["Codex via App Server · Qualifier par rapport au CV<br/>Missions uniquement : architecture, conception,<br/>développement de solutions ou expertise IA<br/>Ignorer les prérequis<br/>Mission IA minoritaire suffisante ; missions vagues retenues"]
+        QUAL --> CTRL["Contrôler la réponse structurée<br/>Conserver verdict, incertitude et éléments justificatifs"]
+        CTRL --> K["SQLite · Enregistrer les décisions<br/>Classer : Casablanca et Rabat,<br/>puis remote ou télétravail, puis autres offres<br/>Dans chaque groupe : plus récentes en premier"]
+        VER -->|Verdict réutilisable| K
+        QUAL -.-> ERR["Échec ou réponse invalide : 2 nouvelles tentatives maximum<br/>Puis erreur technique visible ; poursuivre les autres annonces"]
+    end
+
+    K --> LOT["Lot consultable · Retenir ou écarter, avec indicateur d’incertitude<br/>Motifs, erreurs techniques et problèmes de données"]
+    ERR --> LOT
+    LOT --> FIN(["Fin du graphe 1"])
+    FIN -.-> TEST["Rapport HTML local privé figé et versionné<br/>Revue de 15 offres selon disponibilité<br/>Cible : 5 retenues, 5 retenues incertaines, 5 écartées<br/>Corrections dans la conversation, conservées en SQLite<br/>Verdict humain prioritaire pour la version examinée<br/>Comparer les verdicts sur les mêmes annonces après correction du prompt"]
+    QUAL -.-> TRACE["LangSmith · Étape, durée et statut technique"]
