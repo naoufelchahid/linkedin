@@ -1,1 +1,0 @@
-Illustration graphique contrastée sur fond noir montrant l'acronyme LLM barré d'une croix rouge, avec une flèche pointant vers JEV by TypeSafe, symbolisant le passage des modèles de langage polyvalents aux modèles de décision spécialisés pour les agents IA.

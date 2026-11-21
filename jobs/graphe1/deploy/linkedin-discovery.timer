@@ -1,0 +1,10 @@
+[Unit]
+Description=Recherche des offres à 21 h Casablanca
+
+[Timer]
+OnCalendar=*-*-* 21:00:00 Africa/Casablanca
+Persistent=false
+Unit=linkedin-discovery.service
+
+[Install]
+WantedBy=timers.target

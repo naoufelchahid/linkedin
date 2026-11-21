@@ -1,9 +1,0 @@
-Construis ma mémoire LinkedIn avec le framework en six blocs de LinkPost :
-1. Mes objectifs : ce qui me fera dire dans six mois que LinkedIn marche pour moi.
-2. Mon histoire : ce qui m'a lancé, le moment qui a changé ma direction, les difficultés qui m'ont appris quelque chose et ce qui me motive aujourd'hui.
-3. Ma valeur : le problème que je résous, ce qui change concrètement pour mes clients et pourquoi on me choisit moi.
-4. Mes offres et les personnes à qui elles s'adressent.
-5. Mes preuves : les faits et les résultats que je peux citer.
-6. Mes règles permanentes : ce que tu ne dois jamais écrire à ma place.
-
-Commence par remplir tout ce que tu peux à partir de mon profil LinkedIn et de mes anciens posts, et cite d'où vient chaque information. Ensuite, pose-moi deux ou trois questions à la fois sur ce qui manque. N'invente aucun fait. Quand c'est complet, livre-moi la mémoire dans un fichier memoire-linkedin.md que je pourrai réutiliser.

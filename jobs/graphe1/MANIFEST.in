@@ -1,0 +1,6 @@
+include uv.lock
+include requirements.lock
+include .env.example
+include langgraph.json
+recursive-include docs *.md *.mmd
+recursive-include deploy *.service *.timer

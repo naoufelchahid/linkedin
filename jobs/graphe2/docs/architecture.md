@@ -15,13 +15,13 @@ Construire un `StateGraph` Python avec un checkpointer persistant sur disque. Ga
 | Étape | Travail du nœud et condition de sortie |
 | --- | --- |
 | Ouvrir le dossier | Retrouver le fil stable, figer l’annonce et le CV à la première préparation, ou relire le checkpoint existant. Sérialiser les réveils du même dossier. |
-| Remplir le formulaire | Confier la saisie multi-écrans au navigateur. Une question, un CAPTCHA, une lettre demandée ou un geste susceptible de transmettre rend la main au graphe. |
+| Remplir le formulaire | En production, Codex utilise directement Browsentic pour comprendre et remplir le formulaire, puis valider le dépôt. Une question, un CAPTCHA ou une lettre demandée peut suspendre le tour avant la transmission. |
 | Attendre le candidat | Identifier la question et le dossier, envoyer la notification une seule fois puis suspendre avec `interrupt()`. Sur un choix Telegram valide pour cette attente, reprendre le même fil avec `Command(resume=...)`. Isoler la notification du nœud rejoué à la reprise. |
 | Préparer les pièces | Le rédacteur personnalise une copie du canevas Inwi, exporte le PDF, en vérifie le rendu et retourne la référence de cette version. Le navigateur peut ensuite joindre la pièce demandée. |
 | Déposer ou vérifier | En recette, arrêter avant le premier geste susceptible de transmettre. En production, sérialiser le dernier geste entre lots, vérifier le quota et persister la tentative avant d’autoriser l’action. Après redémarrage avec une tentative ouverte, consulter le suivi du portail. |
 | Préparer et envoyer le mail | Après dépôt confirmé, le rédacteur prépare le brouillon si l’annonce fournit une adresse. Python fait valider sur Telegram la version exacte avec ses deux PDF. La reprise d’un envoi incertain vérifie son acceptation auprès de la messagerie. |
 
-À la frontière du dépôt ou du mail, séparer le nœud qui prépare la tentative du nœud qui agit. Demander une persistance synchrone avant l’effet externe. Au redémarrage, router toute tentative ouverte vers la vérification avant de rendre l’outil d’envoi disponible. Le checkpoint ne peut pas à lui seul attester ce qui s’est passé sur le portail.
+Séparer le nœud qui prépare la tentative du nœud qui agit. Le tour navigateur de production peut transmettre dès qu’il atteint la validation. Le checkpoint durable précède donc le tour entier. Au redémarrage, router toute tentative ouverte vers la vérification en lecture seule avant de rendre les outils de saisie et de dépôt disponibles.
 
 ## Lancement des agents et contexte de travail
 

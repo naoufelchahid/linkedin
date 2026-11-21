@@ -1,0 +1,13 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "dependencies": [
+    "."
+  ],
+  "graphs": {
+    "graphe1": "linkedin_discovery.studio:make_graph"
+  },
+  "env": ".env",
+  "http": {
+    "app": "linkedin_discovery.dashboard:app"
+  }
+}

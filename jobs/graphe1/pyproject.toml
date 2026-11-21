@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=77,<82"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linkedin-discovery"
+version = "1.0.0"
+description = "Graphe 1 de découverte et qualification des offres, avec revue privée"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "starlette==1.10.0",
+  "langgraph-sdk==0.4.14",
+  "httpx==0.28.1",
+  "langgraph==1.2.23",
+  "langsmith==0.15.0",
+  "requests==2.34.2",
+  "jsonschema==4.26.0",
+  "python-dotenv==1.2.4",
+]
+
+[project.scripts]
+linkedin-discovery = "linkedin_discovery.cli:entrypoint"
+
+[dependency-groups]
+dev = ["pytest>=9,<10", "ruff>=0.14,<1", "build>=1,<2"]
+studio = [
+    "langgraph-cli[inmem]>=0.4.43",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+linkedin_discovery = ["resources/*.txt", "resources/*.sql", "resources/dashboard.*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]

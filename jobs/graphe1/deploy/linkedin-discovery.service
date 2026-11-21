@@ -1,0 +1,13 @@
+[Unit]
+Description=Graphe 1 - découverte et qualification des offres
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/naoufel/projects/linkedin/jobs/graphe1
+ExecStart=/home/naoufel/projects/linkedin/jobs/graphe1/.venv/bin/linkedin-discovery --home /home/naoufel/projects/linkedin/jobs/graphe1 discover --daily --fail-on-errors
+UMask=0077
+KillMode=control-group
+TimeoutStartSec=infinity
+TimeoutStopSec=15

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sauvegarde locale privée des deux processus, puis restauration de contrôle."""
+"""Sauvegarde locale privée du projet graphe 1, puis restauration de contrôle."""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -11,7 +11,7 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-EXCLUDED = {'.git', 'backups', 'tmp', '__pycache__', '.pytest_cache', '.playwright-mcp', '.venv'}
+EXCLUDED = {'.git', 'backups', 'tmp', '__pycache__', '.pytest_cache', '.ruff_cache', '.venv'}
 
 
 def verify(folder):

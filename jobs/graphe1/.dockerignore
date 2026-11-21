@@ -1,0 +1,10 @@
+**
+!Dockerfile
+!README.md
+!pyproject.toml
+!uv.lock
+!langgraph.json
+!src/
+!src/linkedin_discovery/
+!src/linkedin_discovery/**
+**/__pycache__/

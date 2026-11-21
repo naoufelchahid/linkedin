@@ -1,0 +1,33 @@
+name: linkedin-graphe1
+services:
+  graphe1:
+    build: .
+    init: true
+    ports:
+      - "127.0.0.1:2024:2024"
+    env_file: .env
+    environment:
+      DISCOVERY_DATA_DIR: /home/naoufel/projects/linkedin/data/candidatures/discovery
+    volumes:
+      - ../../data/candidatures/discovery:/home/naoufel/projects/linkedin/data/candidatures/discovery
+      - type: bind
+        source: ${DISCOVERY_CV:?CV confirmé requis dans .env}
+        target: ${DISCOVERY_CV}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${GRAPHE1_CODEX_BIN:?Chemin du binaire natif Codex requis}
+        target: /usr/local/bin/codex
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${HOME}/.codex/auth.json
+        target: /home/discovery/.codex/auth.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - langgraph:/app/.langgraph_api
+volumes:
+  langgraph:
