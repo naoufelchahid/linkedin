@@ -46,7 +46,7 @@ class Runner:
             try:
                 return self._run(item, reply)
             finally:
-                self.workflow.permits.clear()
+                self.workflow.clear_permits()
 
     def _run(self, item, reply):
         cfg = config(item["dossier"])

@@ -140,6 +140,37 @@ def test_unknown_apify_start_is_never_repeated(pilot):
     )
 
 
+def test_attach_uncertain_run_checks_search_and_resumes_without_start(pilot, monkeypatch):
+    ident = create(pilot)
+    profile = pilot.config.profiles[0]
+    pilot.store.execute(
+        "INSERT INTO runs(cycle_id,profile,status) VALUES(?,?,'START_UNCERTAIN')",
+        (ident, profile),
+    )
+    settings = json.loads(pilot.store.cycle(ident)["settings"])
+    search = dict(keywords=profile, location="Rabat", datePosted="r604800", limit=settings["limit"])
+    monkeypatch.setattr(pilot.apify, "actor_id", lambda actor: actor, raising=False)
+    monkeypatch.setattr(pilot.apify, "run_input", lambda store_id: search, raising=False)
+    original_run = pilot.apify.run
+    monkeypatch.setattr(
+        pilot.apify,
+        "run",
+        lambda run_id: {
+            **original_run(run_id),
+            "defaultKeyValueStoreId": "input",
+            "actId": settings["actor"],
+        },
+    )
+    with pytest.raises(ValueError, match="run_input_mismatch"):
+        pilot.attach_run(ident, profile, "3")
+    search["location"] = "Morocco"
+    assert pilot.attach_run(ident, profile, "3")["run_id"] == "3"
+    with pytest.raises(ValueError, match="run_attachment_not_needed"):
+        pilot.attach_run(ident, profile, "3")
+    pilot.collect({"cycle_id": ident})
+    assert pilot.apify.started == list(pilot.config.profiles[1:])
+
+
 def test_human_review_is_separate_and_report_immutable(pilot):
     ident = create(pilot)
     state = pilot.run(ident)

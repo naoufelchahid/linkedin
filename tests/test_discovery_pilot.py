@@ -1,5 +1,4 @@
 """Les anciens imports et le lanceur utilisent le package canonique."""
-from pathlib import Path
 
 
 def test_legacy_api_reuses_standalone_implementation():

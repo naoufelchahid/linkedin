@@ -19,27 +19,10 @@ from starlette.routing import Route
 
 from .config import Config
 from .launch import Search
-from .model import offer_url
+from .retained import retained_rows
 from .store import Store
 
 ASSETS = files("linkedin_discovery.resources")
-RETAINED = """
-WITH ranked AS (
- SELECT v.id,v.content,v.offer_key,q.result,c.id cycle,c.created_at,c.cv_hash,c.cv_text,
- coalesce(nullif(offer_url(json_extract(v.content,'$.url')),''),v.offer_key) identity,
- (SELECT verdict FROM reviews WHERE version_id=v.id ORDER BY id DESC LIMIT 1) human,
- row_number() OVER (PARTITION BY coalesce(nullif(offer_url(json_extract(v.content,'$.url')),''),v.offer_key)
- ORDER BY c.created_at DESC,v.created_at DESC,v.id) pos
- FROM cycle_items i JOIN versions v ON v.id=i.version_id
- JOIN qualifications q ON q.id=i.qualification_id JOIN cycles c ON c.id=i.cycle_id
- WHERE (?='' OR c.id=?)
-), accepted AS (
- SELECT *,coalesce(human,json_extract(result,'$.verdict')) verdict FROM ranked
-)
-SELECT a.*, (SELECT min(b.created_at) FROM accepted b WHERE b.identity=a.identity
- AND b.verdict='retenir') retained_since FROM accepted a
- WHERE pos=1 AND verdict='retenir' ORDER BY retained_since DESC
-"""
 
 
 def snapshot(config, cycle, offer_key, cycles_only=False):
@@ -49,7 +32,6 @@ def snapshot(config, cycle, offer_key, cycles_only=False):
         return output
     with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as db:
         db.row_factory = sqlite3.Row
-        db.create_function("offer_url", 1, offer_url, deterministic=True)
         output["cycles"] = [
             dict(r)
             for r in db.execute("""
@@ -63,7 +45,7 @@ def snapshot(config, cycle, offer_key, cycles_only=False):
         ]
         if cycles_only:
             return output
-        for row in db.execute(RETAINED, (cycle, cycle)):
+        for row in retained_rows(db, cycle):
             offer = json.loads(row["content"])
             if offer_key:
                 if offer["key"] != offer_key:

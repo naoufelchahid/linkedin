@@ -139,6 +139,12 @@ class Store:
         )
         return dict(self.db.execute("SELECT * FROM qualifications WHERE id=?", (ident,)).fetchone())
 
+    def mark_unreadable(self, qualification_id):
+        self.execute(
+            "UPDATE qualifications SET status='data_problem',error='announcement_or_cv_unreadable' WHERE id=?",
+            (qualification_id,),
+        )
+
     def start_attempt(self, qualification_id):
         # Une tentative interrompue consomme le budget ; aucun envoi métier ici.
         self.execute(
@@ -152,6 +158,10 @@ class Store:
             + 1
         )
         if number > 3:
+            self.execute(
+                "UPDATE qualifications SET status='error',error='qualification_attempts_exhausted' WHERE id=?",
+                (qualification_id,),
+            )
             return None
         self.execute(
             "INSERT INTO attempts(qualification_id,number,status,started_at) VALUES(?,?,?,?)",

@@ -164,14 +164,6 @@ small {
   border-radius: 5px;
   white-space: nowrap;
 }
-.pre,
-pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-pre {
-  font-size: 0.85rem;
-}
 summary {
   cursor: pointer;
 }

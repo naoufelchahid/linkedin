@@ -7,8 +7,8 @@ from contextlib import closing, contextmanager
 from hashlib import sha256
 from pathlib import Path
 
-from linkedin_discovery.dashboard import RETAINED
 from linkedin_discovery.model import offer_url
+from linkedin_discovery.retained import retained_rows
 
 
 @contextmanager
@@ -28,10 +28,9 @@ def database(path):
 def selected(data, cycle):
     source = Path(data) / "discovery.sqlite3"
     with database(source.as_uri() + "?mode=ro") as db:
-        db.create_function("offer_url", 1, offer_url, deterministic=True)
         if not db.execute("SELECT 1 FROM cycles WHERE id=?", (cycle,)).fetchone():
             raise ValueError("cycle_not_found")
-        rows = list(db.execute(RETAINED, (cycle, cycle)))
+        rows = list(retained_rows(db, cycle))
     dossiers = []
     for row in rows:
         offer = json.loads(row["content"])

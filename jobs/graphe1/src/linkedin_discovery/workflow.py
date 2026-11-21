@@ -11,6 +11,7 @@ from jsonschema import ValidationError
 from langchain_core.tracers.langchain import wait_for_all_tracers
 from langsmith import Client, trace, tracing_context
 
+from .collection import attach_profile_run, start_profile_run
 from .connectors import Apify, Codex, ConnectorError, read_cv
 from .graph import build_graph
 from .model import checked_result, digest, normalize
@@ -103,27 +104,7 @@ class DiscoveryService:
     def attach_run(self, cycle_id, profile, run_id):
         cycle = self.store.cycle(cycle_id)
         settings = json.loads(cycle["settings"])
-        run = self.apify.run(run_id)
-        actor_id = self.apify.actor_id(settings["actor"])
-        input_data = self.apify.run_input(run["defaultKeyValueStoreId"])
-        if (
-            profile not in settings["profiles"]
-            or run["actId"] != actor_id
-            or input_data.get("keywords") != profile
-            or input_data.get("location") != settings.get("location", "Morocco")
-            or input_data.get("datePosted") != settings.get("period", "r604800")
-            or input_data.get("limit") != settings["limit"]
-        ):
-            raise ValueError("run_input_mismatch")
-        existing = self.store.db.execute(
-            "SELECT * FROM runs WHERE cycle_id=? AND profile=?", (cycle_id, profile)
-        ).fetchone()
-        if existing is None or existing["run_id"]:
-            raise ValueError("run_attachment_not_needed")
-        self.store.execute(
-            "UPDATE runs SET run_id=?,dataset_id=?,status=?,error=? WHERE cycle_id=? AND profile=?",
-            (run_id, run.get("defaultDatasetId"), run["status"], "", cycle_id, profile),
-        )
+        attach_profile_run(self.store, self.apify, cycle_id, profile, run_id, settings)
         return dict(status="attached", cycle_id=cycle_id, run_id=run_id)
 
     def create(self, *, cv_data=None, prompt=None, replay_of=None, search=None, ident=None):
@@ -229,34 +210,7 @@ class DiscoveryService:
             return {"collection": self.collection_summary(ident)}
         with self.step(ident, "collect"):
             for profile in settings["profiles"]:
-                row = self.store.db.execute(
-                    "SELECT * FROM runs WHERE cycle_id=? AND profile=?", (ident, profile)
-                ).fetchone()
-                if row:
-                    if row["status"] == "STARTING":
-                        self.store.execute(
-                            "UPDATE runs SET status='START_UNCERTAIN',error='start_interrupted_verify_run' WHERE cycle_id=? AND profile=?",
-                            (ident, profile),
-                        )
-                    continue
-                self.store.execute(
-                    "INSERT INTO runs(cycle_id,profile,status) VALUES(?,?,?)",
-                    (ident, profile, "STARTING"),
-                )
-                try:
-                    filters = {k: settings[k] for k in ("location", "period") if k in settings}
-                    run = self.apify.start(profile, settings["limit"], **filters)
-                    run_id = run["id"]
-                    self.store.execute(
-                        "UPDATE runs SET run_id=?,status=?,dataset_id=? WHERE cycle_id=? AND profile=?",
-                        (run_id, run["status"], run.get("defaultDatasetId"), ident, profile),
-                    )
-                except (ConnectorError, KeyError, TypeError):
-                    # Ne pas relancer un POST dont la réception est incertaine.
-                    self.store.execute(
-                        "UPDATE runs SET status='START_UNCERTAIN',error='apify_start_failed_verify_run' WHERE cycle_id=? AND profile=?",
-                        (ident, profile),
-                    )
+                start_profile_run(self.store, self.apify, ident, profile, settings)
             age = (
                 datetime.now(timezone.utc) - datetime.fromisoformat(cycle["created_at"])
             ).total_seconds()
@@ -364,18 +318,11 @@ class DiscoveryService:
                             span.end(outputs={"result": json.loads(q["result"] or "null")})
                     continue
                 if not offer["description"].strip() or not cycle["cv_text"].strip():
-                    self.store.execute(
-                        "UPDATE qualifications SET status='data_problem',error='announcement_or_cv_unreadable' WHERE id=?",
-                        (q["id"],),
-                    )
+                    self.store.mark_unreadable(q["id"])
                     continue
                 while True:
                     number = self.store.start_attempt(q["id"])
                     if number is None:
-                        self.store.execute(
-                            "UPDATE qualifications SET status='error',error='qualification_attempts_exhausted' WHERE id=?",
-                            (q["id"],),
-                        )
                         break
                     result = None
                     try:

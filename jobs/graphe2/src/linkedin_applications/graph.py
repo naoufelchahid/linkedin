@@ -50,7 +50,7 @@ class Workflow:
         self.memory = memory
         self.count = count
         self.now = now or (lambda: datetime.now(ZONE))
-        self.permits = set()
+        self._permits = set()
 
     def wait_for(self, kind, **details):
         return {
@@ -185,14 +185,22 @@ class Workflow:
 
     def open_attempt(self, operation):
         attempt = uuid4().hex
-        self.permits.add(attempt)
+        self._permits.add(attempt)
         return {operation: {"id": attempt, "status": "open"}, "next_node": operation}
+
+    def consume_permit(self, ident):
+        if ident not in self._permits:
+            return False
+        self._permits.remove(ident)
+        return True
+
+    def clear_permits(self):
+        self._permits.clear()
 
     def submission(self, state):
         attempt = state["submission"]
-        if attempt["id"] not in self.permits:
+        if not self.consume_permit(attempt["id"]):
             return self.verify(state)
-        self.permits.remove(attempt["id"])
         if state["mode"] != "production":
             raise ValueError("submission_mode_invalid")
         if attempt.get("native"):
@@ -286,8 +294,7 @@ class Workflow:
         ident = attempt["id"]
         if state["mode"] != "production" or not state.get("evidence"):
             raise ValueError("mail_mode_invalid")
-        if ident in self.permits:
-            self.permits.remove(ident)
+        if self.consume_permit(ident):
             if self.draft_version(state["draft"]) != attempt["version"]:
                 return self.draft(state)
             result = self.mail.send(state["draft"], ident)
