@@ -88,7 +88,7 @@ Le worker conserve le traçage automatique de l’état LangGraph désactivé. `
 
 ### Mandat du formulaire
 
-Le worker embarque `resources/submission-v1.txt`. Avant le premier geste du tour natif, PostgreSQL enregistre le texte statique, son identifiant et son SHA-256 dans la tentative du dossier. La contrainte de la migration 012 vérifie l’empreinte. Le rôle du worker peut mettre à jour le bail et l’issue de la tentative. Ses privilèges préservent le mandat archivé. Les anciennes tentatives conservent une provenance inconnue. Les faits personnels sont fournis séparément au modèle.
+Le worker embarque les versions du mandat dans `resources/submission-v*.txt`. La constante `linkedin_applications.mandate.VERSION` sélectionne la version active. Avant le premier geste du tour natif, PostgreSQL enregistre le texte statique, son identifiant et son SHA-256 dans la tentative du dossier. La contrainte de la migration 012 vérifie l’empreinte. Le rôle du worker peut mettre à jour le bail et l’issue de la tentative. Ses privilèges préservent le mandat archivé. Les anciennes tentatives conservent une provenance inconnue. Les faits personnels sont fournis séparément au modèle.
 
 La recette suivante utilise l’environnement G2, Codex App Server authentifié, Node, un module Playwright installé et un exécutable Chrome. Dans chaque tour, le double MCP ouvre un navigateur jetable et fournit deux pages synthétiques en mémoire. Le modèle reçoit les libellés et les cibles visibles après chaque action. Les identifiants des champs changent à chaque lancement.
 
@@ -149,3 +149,29 @@ Après le reçu SQL du dépôt, `applications.followup_reviews` conserve le dest
 Chaque processus G2 reprend le fil du dossier depuis `runtime_g2`, avec le saver LangGraph PostgreSQL verrouillé par le package. Le rôle de migration crée les tables. Le rôle applicatif lit et écrit les checkpoints, les données des canaux et les interruptions. Un verrou de session PostgreSQL sérialise les écritures d’un fil et se libère à la déconnexion. La protection durable du tour de dépôt s’applique aussi après perte du verrou. Le worker peut reconstituer les pièces figées dans son propre répertoire privé.
 
 Les appels historiques avec file SQLite continuent d’utiliser leur fichier `checkpoints.sqlite3`. La répétition #21 conserve le fichier historique et ses identifiants de fils dans la copie de retour arrière. Les dossiers de cette copie dont les anciens fils mélangent les modes restent en rapprochement dans `applications.legacy_holds`.
+
+## Exécutables du worker et connexion au poste
+
+L’image principale (`jobs/graphe2/Dockerfile`) fournit Codex CLI 0.171.0, LibreOffice Writer, Poppler et le client de socket Unix `socat`. Le rédacteur utilise son répertoire privé par dossier pour personnaliser la copie du DOCX, exporter la lettre et vérifier son PDF. Le compte du conteneur utilise l’UID 1000.
+
+Sur l’hôte, ouvrir un socket Unix dédié à la recette, dans un répertoire privé de l’utilisateur du profil Browsentic de test. Par exemple, au premier plan, avec le bridge déjà associé au profil autorisé :
+
+```sh
+umask 077
+bridge_dir=$(mktemp -d)
+printf 'Répertoire du socket de recette : %s\n' "$bridge_dir"
+socat "UNIX-LISTEN:$bridge_dir/browsentic.sock,mode=0600,fork" EXEC:"browsentic mcp"
+```
+
+Monter ce seul répertoire en lecture seule dans le conteneur sous `/run/linkedin-mcp`. Configurer `APPLICATIONS_BROWSER_COMMAND=["socat","STDIO","UNIX-CONNECT:/run/linkedin-mcp/browsentic.sock"]`. Chaque nouvelle connexion ouvre une session stdio du MCP hôte, y compris lorsqu’App Server lance la commande configurée. L’UID du worker doit avoir accès au socket. Les permissions et approbations du profil Browsentic s’appliquent. Fermer le relais après la recette.
+
+Pour un tour authentifié, fournir un répertoire Codex dédié au worker et autorisé pour la recette, privé et inscriptible par son UID, via le chemin `CODEX_HOME` du conteneur. Monter le fichier modèle DOCX et, pour les brouillons d’e-mail, le texte Humanizer en lecture seule à leurs chemins `APPLICATIONS_LETTER_TEMPLATE` et `APPLICATIONS_HUMANIZER`. Le volume du dossier de travail reste inscriptible. Ces entrées se fournissent au démarrage et restent hors image. L’accès réseau au fournisseur de modèle et une session valide sont nécessaires pour vérifier la qualité d’une rédaction effective.
+
+Depuis la racine, la recette hors ligne s’exécute avec :
+
+```sh
+docker build -t linkedin-applications:recette-image jobs/graphe2
+python3 jobs/graphe2/tests/recette_image/check.py linkedin-applications:recette-image
+```
+
+Elle ouvre un thread du véritable App Server, vérifie le chemin MCP jusqu’à un serveur synthétique sur l’hôte et rend une lettre synthétique dans le workflow du rédacteur. LibreOffice et Poppler produisent puis contrôlent le PDF et sa première page. Un double local remplace le tour de rédaction du modèle. Le conteneur s’exécute sans réseau.
