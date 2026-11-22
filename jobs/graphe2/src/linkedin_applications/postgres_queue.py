@@ -10,6 +10,8 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from .submissions import Submissions
+
 
 class PostgresQueue:
     def __init__(self, data, dsn, candidate):
@@ -17,6 +19,7 @@ class PostgresQueue:
         self.data.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.dsn = dsn
         self.candidate = candidate
+        self.submissions = Submissions(self)
         if not candidate:
             raise ValueError("applications_candidate_required")
 

@@ -26,6 +26,7 @@ class Runner:
         self.workflow = Workflow(
             browser, writer, mail, Memory(queue.data), self.count, now
         )
+        self.workflow.submissions = getattr(queue, "submissions", None)
         self.graph = build(self.workflow, saver)
 
     def close(self):
@@ -115,7 +116,8 @@ class Runner:
         )
 
     def reconcile(self, state):
-        receipt = self.workflow.browser.verify(state)
+        stored = self.workflow.saved_submission(state)
+        receipt = stored["evidence"] if stored else self.workflow.browser.verify(state)
         if not receipt:
             return state
         if state.get("question"):
@@ -131,7 +133,7 @@ class Runner:
             return self.graph.invoke(
                 {
                     "question": None,
-                    **self.workflow.record_submission(state, receipt),
+                    **self.workflow.record_submission(state, receipt, reconciled=True),
                 },
                 config(state["dossier"]),
                 durability="sync",

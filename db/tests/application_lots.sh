@@ -64,3 +64,4 @@ for item, mode, version in zip(items, ["recipe","production"], ["A","B"], strict
 '
 echo "Trois lots, deux dossiers, versions A et B et CV relus depuis le worker isolé."
 "${cli[@]}" --entrypoint python -v "$root/db/tests/dossier_uploads.py:/recette.py:ro" "$image" /recette.py
+"${cli[@]}" --entrypoint python -v "$root/db/tests/submission_recovery.py:/recette.py:ro" "$image" /recette.py

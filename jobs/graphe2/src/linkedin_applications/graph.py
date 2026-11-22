@@ -53,6 +53,7 @@ class Workflow:
         self.count = count
         self.now = now or (lambda: datetime.now(ZONE))
         self._permits = set()
+        self.submissions = None
 
     def wait_for(self, kind, **details):
         return {
@@ -61,7 +62,28 @@ class Workflow:
             "next_node": "wait",
         }
 
+    def saved_submission(self, state):
+        if self.submissions and (receipt := self.submissions.receipt(state["dossier"])):
+            return {
+                "status": "submitted",
+                "submission": {"id": receipt["id"], "status": "confirmed"},
+                "evidence": receipt["evidence"],
+                "next_node": "draft",
+            }
+        return None
+
     def fill(self, state):
+        if self.submissions and state["mode"] == "production":
+            if saved := self.saved_submission(state):
+                return saved
+            if active := self.submissions.active(state["dossier"]):
+                return {
+                    "submission": {
+                        **active,
+                        "native": getattr(self.browser, "native_submission", False),
+                    },
+                    "next_node": "submission",
+                }
         if state["mode"] == "production" and getattr(
             self.browser, "native_submission", False
         ):
@@ -142,8 +164,11 @@ class Workflow:
         if kind == "uncertain":
             receipt = answer.get("receipt") or self.browser.verify(state)
             if receipt:
-                return {"question": None, **self.record_submission(state, receipt)}
-            if answer["choice"] == "retry":
+                return {
+                    "question": None,
+                    **self.record_submission(state, receipt, reconciled=True),
+                }
+            if answer["choice"] == "retry" and not self.submissions:
                 return {
                     "question": None,
                     "submission": None,
@@ -183,6 +208,8 @@ class Workflow:
                 "next_node": END,
             }
         opened = self.open_attempt("submission")
+        if self.submissions:
+            opened["submission"]["sql_guarded"] = True
         if getattr(self.browser, "native_submission", False):
             opened["submission"]["native"] = True
         return opened
@@ -203,10 +230,24 @@ class Workflow:
 
     def submission(self, state):
         attempt = state["submission"]
-        if not self.consume_permit(attempt["id"]):
-            return self.verify(state)
+        permitted = self.consume_permit(attempt["id"])
         if state["mode"] != "production":
             raise ValueError("submission_mode_invalid")
+        if not self.submissions:
+            return self.transmit(state) if permitted else self.verify(state)
+        fresh, row = self.submissions.begin(state)
+        attempt = {**attempt, "id": row["id"], "generation": row["generation"]}
+        state = {**state, "submission": attempt}
+        if row["status"] == "no_submission":
+            return row["outcome"]
+        if not fresh or not (permitted or attempt.get("sql_guarded")):
+            return {"submission": attempt, **self.verify(state)}
+        with self.submissions.lease(state["dossier"], attempt):
+            result = self.transmit(state)
+        return {"submission": attempt, **result}
+
+    def transmit(self, state):
+        attempt = state["submission"]
         if attempt.get("native"):
             result = self.browser.run_form(state, self.memory.read(state))
             tab = (
@@ -221,17 +262,35 @@ class Workflow:
                 "submitted",
             }:
                 return {**tab, **self.verify({**state, **tab})}
-            return {"submission": None, **self.form_result(state, result)}
+            update = {"submission": None, **self.form_result(state, result)}
+            if self.submissions and not self.submissions.finish(state, outcome=update):
+                return self.verify(state)
+            return update
         receipt = self.browser.submit(state, attempt["id"])
         return self.record_submission(state, receipt) if receipt else self.verify(state)
 
     def verify(self, state):
+        if saved := self.saved_submission(state):
+            return saved
         receipt = self.browser.verify(state)
         if receipt:
-            return self.record_submission(state, receipt)
+            return self.record_submission(state, receipt, reconciled=True)
         return self.wait_for("uncertain", text="Dépôt à vérifier sur le portail.")
 
-    def record_submission(self, state, receipt):
+    def record_submission(self, state, receipt, reconciled=False):
+        if saved := self.saved_submission(state):
+            return saved
+        if self.submissions and "generation" not in state["submission"]:
+            # Les checkpoints précédant la migration peuvent déjà être en vérification.
+            _, row = self.submissions.begin(state)
+            state = {
+                **state,
+                "submission": {
+                    **state["submission"],
+                    "id": row["id"],
+                    "generation": row["generation"],
+                },
+            }
         observed = self.now()
         try:
             sent = datetime.fromisoformat(receipt.get("sent_at") or "")
@@ -241,7 +300,7 @@ class Workflow:
             sent, source = observed, "observation"
         else:
             source = "portail"
-        return {
+        update = {
             "status": "submitted",
             "submission": {**state["submission"], "status": "confirmed"},
             "evidence": {
@@ -251,6 +310,14 @@ class Workflow:
             },
             "next_node": "draft",
         }
+
+        if self.submissions and not self.submissions.finish(
+            state, evidence=update["evidence"], reconciled=reconciled
+        ):
+            return self.saved_submission(state) or self.wait_for(
+                "uncertain", text="Dépôt à vérifier sur le portail."
+            )
+        return update
 
     @staticmethod
     def draft_version(draft):
