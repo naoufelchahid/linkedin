@@ -3,6 +3,7 @@
 import imaplib
 import os
 import smtplib
+from email import message_from_bytes
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -53,7 +54,18 @@ class Mail:
             status, values = imap.search(
                 None, "HEADER", "Message-ID", f'"{message_id}"'
             )
-        return {"message_id": message_id} if status == "OK" and values[0] else None
+            if status == "OK" and values and values[0]:
+                for uid in values[0].split():
+                    status, parts = imap.fetch(
+                        uid, "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])"
+                    )
+                    if status == "OK" and any(
+                        isinstance(part, tuple)
+                        and message_from_bytes(part[1]).get("Message-ID") == message_id
+                        for part in parts
+                    ):
+                        return {"message_id": message_id}
+        return None
 
 
 class Telegram:

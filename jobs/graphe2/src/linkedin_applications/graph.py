@@ -1,6 +1,5 @@
 """Transitions du dossier. Le checkpoint précède tout appel de transmission."""
 
-import json
 from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -11,6 +10,7 @@ from zoneinfo import ZoneInfo
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
+from .followup import frozen_draft, manifest, version
 from .obstacles import describe
 from .telemetry import AttemptTrace
 
@@ -38,6 +38,7 @@ class State(TypedDict, total=False):
     evidence: dict | None
     planned_action: dict | None
     browser_tab: int
+    mail_review: str
     mail_approval: str
     due: str
     reason: str
@@ -58,6 +59,7 @@ class Workflow:
         self.count = count
         self.now = now or (lambda: datetime.now(ZONE))
         self._permits = set()
+        self.followup = None
         self.submissions = None
         self.trace = AttemptTrace(trace_port)
 
@@ -176,16 +178,25 @@ class Workflow:
                     attempt_id=question["attempt_id"],
                 )
             return {"question": None, "status": "preparing", "next_node": "fill"}
+        if kind in {"mail", "recipe_mail"} and answer["choice"] == "refresh":
+            return {"question": None, "next_node": "draft"}
         if kind == "mail":
             if (
                 answer["choice"] == "approve"
                 and self.draft_version(state["draft"]) == question["version"]
+                and (
+                    not self.followup
+                    or self.followup.approve(
+                        state["dossier"], question["id"], question["version"]
+                    )
+                )
             ):
                 return {
                     "question": None,
                     "status": "submitted",
                     "next_node": "prepare_mail",
                     "mail_approval": question["version"],
+                    "mail_review": question["id"],
                 }
             if answer["choice"] == "approve":
                 return {"question": None, "next_node": "draft"}
@@ -406,13 +417,17 @@ class Workflow:
 
     @staticmethod
     def draft_version(draft):
-        data = {
-            **draft,
-            "attachments": [fingerprint(path) for path in draft["attachments"]],
-        }
-        return sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+        return version(manifest(draft))
 
     def draft(self, state):
+        if self.followup and (existing := self.followup.attempt(state["dossier"])):
+            return {
+                "mail": {
+                    "id": existing["attempt_id"].hex,
+                    "version": existing["version"],
+                },
+                "next_node": "send_mail",
+            }
         draft = self.writer.draft(state)
         if not draft:
             return {"mail_status": "unavailable", "next_node": END}
@@ -427,12 +442,14 @@ class Workflow:
                 "status": "recipe_ready",
                 "mail_status": "recipe_ready",
             }
+        data = manifest(draft)
+        review = self.wait_for("mail", text=draft["subject"], version=version(data))
+        if self.followup:
+            self.followup.present(state["dossier"], review["question"]["id"], data)
         return {
             "draft": draft,
             "mail_status": "waiting",
-            **self.wait_for(
-                "mail", text=draft["subject"], version=self.draft_version(draft)
-            ),
+            **review,
             "status": "submitted",
         }
 
@@ -450,12 +467,32 @@ class Workflow:
         ident = attempt["id"]
         if state["mode"] != "production" or not state.get("evidence"):
             raise ValueError("mail_mode_invalid")
-        if self.consume_permit(ident):
-            if self.draft_version(state["draft"]) != attempt["version"]:
-                return self.draft(state)
-            result = self.mail.send(state["draft"], ident)
+        existing = self.followup.attempt(state["dossier"]) if self.followup else None
+        allowed = self.consume_permit(ident)
+        if self.followup and state.get("mail_review"):
+            allowed = existing is None
+        if existing:
+            ident = existing["attempt_id"].hex
+            attempt = {"id": ident, "version": existing["version"]}
+            allowed = False
+        if allowed:
+            with frozen_draft(state["draft"]) as exact:
+                if self.draft_version(exact) != attempt["version"]:
+                    return self.draft(state)
+                if self.followup and not self.followup.claim(
+                    state["dossier"],
+                    state.get("mail_review"),
+                    attempt["version"],
+                    ident,
+                ):
+                    return self.draft(state)
+                result = self.mail.send(exact, ident)
         else:
-            result = self.mail.verify(state["draft"], ident)
+            result = (existing or {}).get("receipt") or self.mail.verify(
+                state.get("draft"), ident
+            )
+        if self.followup and result:
+            self.followup.confirm(ident, result)
         return {
             "mail": {
                 **attempt,

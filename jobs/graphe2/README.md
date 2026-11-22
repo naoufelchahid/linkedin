@@ -139,3 +139,7 @@ Pour les portails à code ou lien, le connecteur livré observe l’état obtenu
 Le mandat archive un signal structuré par tour. La matrice `applications.portal_obstacles` relie la tentative au domaine du portail, à l’étape, à une observation de vocabulaire fermé, à la cause et à la présence d’un geste de transmission. Les contrôles de reprise enregistrent la date et le résultat du correctif. Les observations normalisées évitent de copier un champ, une URL avec paramètres ou le détail libre du portail.
 
 Pour un obstacle avant transmission, « Vérifier le correctif » déclenche une lecture du même onglet. Une condition positive liée à l’offre doit être observée avant toute reprise. Un contrôle humain conserve l’attente de l’opérateur. Un HTTP 403 après validation laisse la cause inconnue et le dépôt à vérifier jusqu’à observation du reçu. La recette PostgreSQL `db/tests/application_lots.sh` couvre ces parcours avec un double du portail.
+
+### Accord et rapprochement du mail de suivi
+
+Après le reçu SQL du dépôt, `applications.followup_reviews` conserve le destinataire, l’objet, le corps, les noms et les empreintes des pièces présentés pour chaque demande. Le clic valide la dernière demande et sa version. Le worker contrôle les octets figés avant de réserver l’unique tentative dans `applications.followup_sends`. En cas de réponse SMTP perdue, le worker recherche le Message-ID de cette tentative dans le dossier configuré des messages envoyés. Une preuve manquante maintient le suivi à vérifier. Le mode recette habituel affiche uniquement l’aperçu.

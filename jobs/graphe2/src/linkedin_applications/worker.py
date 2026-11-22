@@ -16,6 +16,7 @@ from dotenv import dotenv_values
 
 from .browser import Browsentic
 from .connectors import ACTIONS, RESPONSE_ACTIONS, Mail, Telegram, private_write
+from .followup import frozen_draft
 from .legacy_selection import retained_rows
 from .runner import Runner, config
 from .storage import Queue, database, selected
@@ -61,10 +62,13 @@ class Worker:
                 msg = self.telegram.text(text, reply_markup={"force_reply": True})
             else:
                 if q["kind"] in {"mail", "recipe_mail"}:
-                    draft = dossier["draft"]
-                    text = f"{title}\nÀ {draft['recipient']}\n{draft['subject']}\n\n{draft['body']}"
-                    for path in draft["attachments"]:
-                        self.telegram.document(path)
+                    with frozen_draft(dossier["draft"]) as draft:
+                        if self.runner.workflow.draft_version(draft) != q["version"]:
+                            self.runner.run(dossier, {"id": ident, "choice": "refresh"})
+                            continue
+                        text = f"{title}\nÀ {draft['recipient']}\n{draft['subject']}\n\n{draft['body']}"
+                        for path in draft["attachments"]:
+                            self.telegram.document(path)
                 msg = self.telegram.buttons(text, ident, ACTIONS[q["kind"]])
             self.telegram_state["prompts"][ident] = msg["message_id"]
             self.save()
@@ -192,11 +196,17 @@ class Worker:
             self.recheck_at = time.monotonic() + 120
             for snap in self.runner.snapshots():
                 state = snap.values
-                if (state.get("question") or {}).get(
-                    "kind"
-                ) == "uncertain" or state.get("status") == "submission_uncertain":
+                check_mail = state.get("mail_status") == "uncertain"
+                if (
+                    check_mail
+                    or (state.get("question") or {}).get("kind") == "uncertain"
+                    or state.get("status") == "submission_uncertain"
+                ):
                     try:
-                        self.runner.reconcile(state)
+                        if check_mail:
+                            self.runner.reconcile_mail(state)
+                        else:
+                            self.runner.reconcile(state)
                     except Exception as exc:  # noqa: BLE001
                         print(
                             state["dossier"],

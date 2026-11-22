@@ -33,6 +33,7 @@ class Runner:
             trace_port=trace_port,
         )
         self.workflow.submissions = getattr(queue, "submissions", None)
+        self.workflow.followup = getattr(queue, "followup", None)
         self.graph = build(self.workflow, saver)
 
     def close(self):
@@ -137,6 +138,12 @@ class Runner:
             )
             for item in self.queue.items()
         )
+
+    def reconcile_mail(self, state):
+        with tracing_context(enabled=False):
+            return self.graph.invoke(
+                {"next_node": "send_mail"}, config(state["dossier"]), durability="sync"
+            )
 
     def reconcile(self, state):
         with (

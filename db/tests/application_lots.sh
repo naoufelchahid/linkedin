@@ -41,6 +41,13 @@ SQL
 }
 publish A
 cli=(docker run --rm --network "$network" -e "APPLICATIONS_POSTGRES_DSN=host=db dbname=postgres user=recette" -e APPLICATIONS_CANDIDATE=test)
+followup_mail() {
+    "${cli[@]}" --entrypoint python -v "$root/db/tests/followup_mail.py:/recette.py:ro" "$image" /recette.py
+}
+if [[ ${1:-} == --followup-mail ]]; then
+    followup_mail
+    exit 0
+fi
 launch() { "${cli[@]}" "$image" --state /tmp/etat launch --cycle "$1" --mode "$2" --queue-only; }
 a=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 b=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -69,3 +76,4 @@ echo "Trois lots, deux dossiers, versions A et B et CV relus depuis le worker is
 "${cli[@]}" --entrypoint python -v "$root/db/tests/attempt_trace.py:/recette.py:ro" "$image" /recette.py
 "${cli[@]}" --entrypoint python -v "$root/db/tests/telegram_answers.py:/recette.py:ro" "$image" /recette.py
 "${cli[@]}" --entrypoint python -v "$root/db/tests/portal_obstacles.py:/recette.py:ro" "$image" /recette.py
+followup_mail
