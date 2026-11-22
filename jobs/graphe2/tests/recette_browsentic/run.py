@@ -40,9 +40,13 @@ def worker(phase, nonce, image, proof):
     ) as mcp:
         try:
             return subprocess.run(
-                command, stdin=mcp.stdout, stdout=mcp.stdin, timeout=150, check=False
+                command,
+                stdin=mcp.stdout,
+                stdout=mcp.stdin,
+                timeout=None if phase == "pdf-panel" else 150,
+                check=False,
             ).returncode
-        except subprocess.TimeoutExpired:
+        except (KeyboardInterrupt, subprocess.TimeoutExpired):
             subprocess.run(
                 ["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, check=False
             )
@@ -114,6 +118,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chrome", required=True, type=Path)
     parser.add_argument("--image", default="linkedin-browsentic-recette")
+    parser.add_argument(
+        "--pdf-panneau",
+        action="store_true",
+        help="Attendre la sélection de recette.pdf dans le panneau Browsentic",
+    )
     parser.add_argument("--isolated", metavar="PARENT_NETNS", help=argparse.SUPPRESS)
     args = parser.parse_args()
     chrome = args.chrome.resolve(strict=True)
@@ -133,6 +142,8 @@ def main():
             "--image",
             args.image,
         ]
+        if args.pdf_panneau:
+            command.append("--pdf-panneau")
         return subprocess.run(command, check=False).returncode
 
     # Un argument interne seul ne doit jamais démarrer un Bridge sur le réseau du poste.
@@ -193,6 +204,20 @@ def main():
                     check=True,
                     stdout=subprocess.DEVNULL,
                 )
+                if args.pdf_panneau:
+                    print(
+                        f"PDF à sélectionner dans le panneau Browsentic : {HERE / 'recette.pdf'}",
+                        flush=True,
+                    )
+                    return browser_phase(
+                        chrome,
+                        profile,
+                        extension,
+                        "pdf-panel",
+                        server.nonce,
+                        args.image,
+                        proof,
+                    )
                 start = browser_phase(
                     chrome, profile, extension, "start", server.nonce, args.image, proof
                 )

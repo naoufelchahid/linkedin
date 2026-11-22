@@ -48,7 +48,36 @@ async def run(phase, nonce):
             f"Texte de recette absent dans la page. Résultat {result.get('content', '')[:120]!r}"
         )
 
+    async def attach(reference):
+        await call("page_attachFile", **reference, target={"selector": "#piece"})
+        await expect(hashlib.sha256(PDF.read_bytes()).hexdigest())
+        print("SHA-256 du PDF lu depuis le champ de fichier vérifié", file=sys.stderr)
+
     print(f"UID du worker Docker {os.getuid()}", file=sys.stderr)
+    if phase == "pdf-panel":
+        piece = await call("page_openTab", url=BASE + "/piece")
+        print(
+            "Onglet prêt. Dans le panneau Browsentic de cet onglet, utiliser « Attach a file » pour choisir recette.pdf.",
+            file=sys.stderr,
+        )
+        while True:
+            inventory = await call("page_listFiles", nameContains=PDF.name)
+            files = [
+                f
+                for f in inventory["files"]
+                if f["name"] == PDF.name and f["size"] == PDF.stat().st_size
+            ]
+            if files:
+                break
+            await asyncio.sleep(3)
+        if (
+            len(files) != 1
+            or await browser.current_url(rpc, piece["tabId"]) != BASE + "/piece"
+        ):
+            raise RuntimeError("Fichier ambigu ou onglet de recette inactif")
+        await attach({"fileId": files[0]["id"]})
+        return 0
+
     start = await call(
         "page_openTab", url=BASE + ("/start" if phase == "start" else "/resume")
     )
@@ -89,13 +118,7 @@ async def run(phase, nonce):
         raise RuntimeError("Onglet de recette inactif")
     print("Second onglet actif vérifié", file=sys.stderr)
     captured = await call("page_captureDownload", url=BASE + "/recette.pdf")
-    await call(
-        "page_attachFile",
-        downloadId=captured["downloadId"],
-        target={"selector": "#piece"},
-    )
-    await expect(hashlib.sha256(PDF.read_bytes()).hexdigest())
-    print("SHA-256 du PDF lu depuis le champ de fichier vérifié", file=sys.stderr)
+    await attach({"downloadId": captured["downloadId"]})
     return 2 if visual_review else 0
 
 
