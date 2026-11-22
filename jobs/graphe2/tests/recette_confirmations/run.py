@@ -76,7 +76,15 @@ def mailbox(home, messages):
 class Portal(Browsentic):
     def __init__(self, directory):
         super().__init__(
-            directory, [sys.executable, str(HERE / "portal.py"), str(directory)], {}
+            directory,
+            [
+                sys.executable,
+                str(HERE / "portal.py"),
+                str(directory),
+                os.environ["PLAYWRIGHT"],
+                os.environ["CHROME"],
+            ],
+            {},
         )
         self.visits = {}
         self.root = directory
@@ -167,7 +175,9 @@ def main():
             }
             for n in "AB"
         ]
-        confirm = EmailConfirmations(queue, portal, ["/bin/false"], rules)
+        confirm = EmailConfirmations(
+            queue, portal, ["/bin/false"], rules, offline_recipe=True
+        )
         portal.confirmations = confirm
         runner = Runner(queue, portal, None, None)
         try:
@@ -206,25 +216,40 @@ def main():
             with mailbox(home, events) as command:
                 confirm.command = command
                 for n in "BA":
-                    # Le pilote local de recette saisit uniquement son propre témoin synthétique.
-                    for _ in range(20):
-                        if asyncio.run(
-                            verify_fixture_code(
-                                portal, command, rules[ord(n) - 65], n, tokens[n]
-                            )
-                        ):
-                            break
-                        time.sleep(0.5)
-                    else:
-                        raise AssertionError("Message synthétique manquant")
-                    assert (
-                        runner.run(items[n])["reason"] == "Suite du formulaire atteinte"
-                    )
+                    rule = rules[ord(n) - 65]
+                    discover_folder(portal, command, rule)
+                    expected = home / (n + ".digest")
                     if n == "B":
+                        expected.write_text(
+                            hashlib.sha256(tokens["A"].encode()).hexdigest()
+                        )
                         assert (
-                            runner.run(items["A"])["status"]
+                            runner.run(items[n])["status"]
                             == "waiting_account_confirmation"
                         )
+                        assert not (home / "B.verified").exists()
+                    expected.write_text(hashlib.sha256(tokens[n].encode()).hexdigest())
+                    if n == "A":
+                        # Simule un ancien onglet réutilisé pour l’autre espace.
+                        alias = home / "old-tab"
+                        alias.touch()
+                        assert (
+                            runner.run(items[n])["status"]
+                            == "waiting_account_confirmation"
+                        )
+                        assert not (home / "A.verified").exists()
+                        alias.unlink()
+                    assert (
+                        runner.run(items[n]).get("reason")
+                        == "Suite du formulaire atteinte"
+                    ), (
+                        (home / "actions.log").read_text()
+                        if (home / "actions.log").exists()
+                        else "aucune observation"
+                    )
+                    assert (home / (n + ".verified")).is_file()
+                    if n == "B":
+                        assert not (home / "A.verified").exists()
         finally:
             runner.close()
         with queue.connect() as db:
@@ -258,12 +283,22 @@ def main():
             )
         assert not (home / "checkpoints.sqlite3").exists()
         assert all(portal.visits[n] == 2 for n in "AB")
+        content = (home / "actions.log").read_bytes()
+        assert all(t.encode() not in content for t in tokens.values())
         print(
             "Deux messages Thunderbird en ordre inverse, deux reprises, panne isolée, zéro reçu et checkpoints expurgés."
         )
 
 
-async def verify_fixture_code(portal, command, rule, space, expected):
+def discover_folder(portal, command, rule):
+    for _ in range(20):
+        if asyncio.run(find_folder(portal, command, rule)):
+            return
+        time.sleep(0.5)
+    raise RuntimeError("Dossier des messages synthétiques introuvable")
+
+
+async def find_folder(portal, command, rule):
     # Réservé aux EML écrits ci-dessus et au profil Thunderbird sans réseau.
     async with Session(command, portal.cwd) as rpc:
         await portal.connect(rpc)
@@ -298,32 +333,6 @@ async def verify_fixture_code(portal, command, rule, space, expected):
             {"subject": rule["subject"] + " autre"},
         ):
             assert matching_notice([{**row, **changed}], rule, check) is None
-        message = await call(
-            "getMessage",
-            folderPath=rule["folder"],
-            messageId=row["id"],
-            bodyFormat="text",
-        )
-        body = message["body"].strip()
-        if body != expected:
-            return False
-        await asyncio.to_thread(
-            subprocess.run,
-            ["node", HERE / "verify.cjs"],
-            input=json.dumps(
-                {
-                    "space": space,
-                    "token": body,
-                    "digest": hashlib.sha256(expected.encode()).hexdigest(),
-                }
-            )
-            + "\n",
-            text=True,
-            check=True,
-            timeout=45,
-        )
-        # Le formulaire du portail synthétique a validé le témoin dans Chrome.
-        (portal.root / (space + ".verified")).touch()
         return True
 
 

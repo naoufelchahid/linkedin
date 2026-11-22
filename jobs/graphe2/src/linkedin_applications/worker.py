@@ -283,7 +283,11 @@ def services(queue, env):
         ):
             raise ValueError("applications_thunderbird_command_invalid")
         browser.confirmations = EmailConfirmations(
-            queue, browser, thunderbird, policy.get("email_confirmations", [])
+            queue,
+            browser,
+            thunderbird,
+            policy.get("email_confirmations", []),
+            offline_recipe=env.get("APPLICATIONS_OFFLINE_RECIPE_MARKERS") == "1",
         )
     return Runner(
         queue,

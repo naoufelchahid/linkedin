@@ -15,7 +15,7 @@ async function main() {
     const url = 'https://portail.invalid/' + space + '/confirmation';
     await page.route('**/*', route => route.request().url() === url
       ? route.fulfill({contentType: 'text/html', body:
-        '<form><input id="code" type="password" required><button>Confirmer</button></form><output></output>'})
+        '<form><input id="code" type="password" required><button data-confirm-registration>Confirmer</button></form><output></output>'})
       : route.abort());
     await page.goto(url);
     await page.evaluate(expected => {
@@ -30,7 +30,8 @@ async function main() {
     }, digest);
     await page.locator('#code').fill(token);
     await page.locator('button').click();
-    await page.waitForFunction(() => document.querySelector('output').textContent === 'actif');
+    await page.waitForFunction(() => document.querySelector('output').textContent !== '');
+    if (await page.locator('output').textContent() !== 'actif') throw Error();
   } finally { await browser.close(); }
 }
 main().catch(() => { process.exitCode = 1; });

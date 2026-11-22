@@ -11,7 +11,6 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-import time
 from contextlib import ExitStack, closing
 from datetime import UTC, datetime
 from email.utils import format_datetime
@@ -204,7 +203,9 @@ def round_trip(home, queue, portal, stack):
         "confirmed_url": ORIGIN + "/A/actif",
         "confirmed_text": "Espace A actif",
     }
-    portal.confirmations = EmailConfirmations(queue, portal, ["/bin/false"], [rule])
+    portal.confirmations = EmailConfirmations(
+        queue, portal, ["/bin/false"], [rule], offline_recipe=True
+    )
     with closing(Runner(queue, portal, Writer(), None, trace_port=port)) as runner:
         wait = runner.run(item)
         assert wait["question"]["kind"] == "registration"
@@ -217,14 +218,8 @@ def round_trip(home, queue, portal, stack):
     )
     with mail_fixture.mailbox(home, [msg]) as command:
         portal.confirmations.command = command
-        for _ in range(20):
-            if asyncio.run(
-                mail_fixture.verify_fixture_code(portal, command, rule, "A", code)
-            ):
-                break
-            time.sleep(1)
-        else:
-            raise RuntimeError("Confirmation de recette absente")
+        mail_fixture.discover_folder(portal, command, rule)
+        (home / "A.digest").write_text(hashlib.sha256(code.encode()).hexdigest())
         with closing(Runner(queue, portal, Writer(), None, trace_port=port)) as runner:
             try:
                 runner.run(item)

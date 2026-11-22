@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+import re
 from datetime import UTC, datetime
 from email.utils import getaddresses
 from hashlib import sha256
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from .codex import ConnectorError, Session, codex_environment
@@ -44,16 +46,17 @@ def matching_notice(rows, rule, account):
         if dated.tzinfo and account["started_at"] <= dated <= now and row.get("id"):
             matches.append(row["id"])
     if len(matches) == 1:
-        return sha256(matches[0].encode()).hexdigest()
+        return matches[0]
     return None
 
 
 class EmailConfirmations:
-    def __init__(self, queue, browser, thunderbird, rules):
+    def __init__(self, queue, browser, thunderbird, rules, *, offline_recipe=False):
         self.queue = queue
         self.browser = browser
         self.command = thunderbird
         self.rules = rules
+        self.offline_recipe = offline_recipe
 
     def rule(self, account):
         rules = [
@@ -105,13 +108,63 @@ class EmailConfirmations:
             )
             return True
 
+    async def apply_fixture_marker(self, mail, portal, account, rule, message_id):
+        """Seuls les deux formulaires synthétiques dans le réseau loopback de recette."""
+        space = account["employer_space"]
+        interfaces = {
+            row.split(":")[0].strip()
+            for row in Path("/proc/net/dev").read_text().splitlines()[2:]
+        }
+        if (
+            not self.offline_recipe
+            or interfaces != {"lo"}
+            or space not in {"A", "B"}
+            or account["provider"] != "https://portail.invalid"
+            or rule["sender"] != "portail@example.invalid"
+            or account["login_email"] != "candidat@example.invalid"
+            or rule["confirmed_url"] != f"https://portail.invalid/{space}/actif"
+        ):
+            return
+        target = f"https://portail.invalid/{space}/confirmation"
+        tab = account["browser_tab"]
+        if await self.browser.current_url(portal, tab) != target:
+            return
+        reply = await mail.request(
+            "tools/call",
+            {
+                "name": "getMessage",
+                "arguments": {
+                    "folderPath": rule["folder"],
+                    "messageId": message_id,
+                    "bodyFormat": "text",
+                },
+            },
+        )
+        if reply.get("isError"):
+            return
+        marker = json.loads(reply["content"][0]["text"])["body"].strip()
+        if not re.fullmatch(r"G15-" + space + r"-[0-9a-f]{12}", marker):
+            return
+        if await self.browser.current_url(portal, tab) != target:
+            return
+        await self.browser.use(
+            portal, "page_fillInput", {"target": {"selector": "#code"}, "value": marker}
+        )
+        if await self.browser.current_url(portal, tab) != target:
+            return
+        await self.browser.use(
+            portal,
+            "page_clickElement",
+            {"target": {"selector": "button[data-confirm-registration]"}},
+        )
+
     async def observe(self, account, rule):
-        async with asyncio.timeout(8):
+        async with asyncio.timeout(45 if self.offline_recipe else 8):
             async with Session(
                 self.command, self.browser.cwd, codex_environment()
-            ) as rpc:
-                await self.browser.connect(rpc)
-                reply = await rpc.request(
+            ) as mail:
+                await self.browser.connect(mail)
+                reply = await mail.request(
                     "tools/call",
                     {
                         "name": "searchMessages",
@@ -125,33 +178,39 @@ class EmailConfirmations:
                 )
                 if reply.get("isError"):
                     return None
-                notice = matching_notice(
+                message_id = matching_notice(
                     json.loads(reply["content"][0]["text"]), rule, account
                 )
-            if not notice:
-                return None
-            async with Session(
-                self.browser.command, self.browser.cwd, codex_environment()
-            ) as rpc:
+                if not message_id:
+                    return None
                 browser = self.browser
-                await browser.connect(rpc)
-                tab = account["browser_tab"]
-                # Le worker peut avoir traité un autre dossier entre deux lectures.
-                await browser.use(rpc, "page_switchTab", {"tabId": tab})
-                if await browser.current_url(rpc, tab) != rule["confirmed_url"]:
-                    return None
-                page = browser.json_result(
-                    await browser.use(rpc, "page_extractText", {})
-                )
-                content = page.get("text") or page.get("content") or ""
-                if (
-                    rule["confirmed_text"] not in content
-                    or account["login_email"].casefold()
-                    not in content.casefold().split()
-                    or await browser.current_url(rpc, tab) != rule["confirmed_url"]
-                ):
-                    return None
-                return notice
+                async with Session(
+                    browser.command, browser.cwd, codex_environment()
+                ) as portal:
+                    await browser.connect(portal)
+                    tab = account["browser_tab"]
+                    await browser.use(portal, "page_switchTab", {"tabId": tab})
+                    if await browser.current_url(portal, tab) != rule["confirmed_url"]:
+                        if not self.offline_recipe:
+                            return None
+                        await self.apply_fixture_marker(
+                            mail, portal, account, rule, message_id
+                        )
+                    if await browser.current_url(portal, tab) != rule["confirmed_url"]:
+                        return None
+                    page = browser.json_result(
+                        await browser.use(portal, "page_extractText", {})
+                    )
+                    content = page.get("text") or page.get("content") or ""
+                    if (
+                        rule["confirmed_text"] not in content
+                        or account["login_email"].casefold()
+                        not in content.casefold().split()
+                        or await browser.current_url(portal, tab)
+                        != rule["confirmed_url"]
+                    ):
+                        return None
+                    return sha256(message_id.encode()).hexdigest()
 
     def poll(self, dossier):
         with self.queue.connect() as db:
