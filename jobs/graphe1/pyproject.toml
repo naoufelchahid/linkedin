@@ -18,6 +18,7 @@ dependencies = [
   "jsonschema==4.26.0",
   "python-dotenv==1.2.4",
   "psycopg[binary]==3.3.8",
+  "langgraph-checkpoint-postgres==3.2.1",
 ]
 
 [project.scripts]

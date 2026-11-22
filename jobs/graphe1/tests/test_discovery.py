@@ -709,3 +709,89 @@ def test_postgres_qualification_review_replay(tmp_path):
     assert [r["agrees"] for r in comparisons] == [False, None]
     assert Path(state["report_path"]).read_bytes() == original
     pilot.store.close()
+
+
+@pytest.mark.skipif(not os.getenv("TEST_CV_POSTGRES_DSN"), reason="recette PostgreSQL isolée")
+def test_postgres_checkpoint_resume(tmp_path, monkeypatch):
+    import asyncio
+
+    import psycopg
+
+    from linkedin_discovery import studio
+
+    dsn = os.environ["TEST_CV_POSTGRES_DSN"]
+    config = Config(root=tmp_path / "premier", postgres_dsn=dsn, collect_seconds=0)
+    pilot = Pilot(config, apify=FakeApify(), codex=FakeCodex())
+    cycle = create(pilot)
+    report = pilot.report
+    ids = []
+
+    def crash_after_report(state):
+        ids.append(report(state)["report_id"])
+        raise RuntimeError("coupure_de_recette")
+
+    monkeypatch.setattr(pilot, "report", crash_after_report)
+    with pytest.raises(RuntimeError, match="coupure_de_recette"):
+        pilot.run(cycle)
+    assert len(pilot.apify.started) == 3 and len(pilot.codex.calls) == 1
+    original = (config.data / "reports" / (ids[0] + ".html")).read_bytes()
+    pilot.store.close()
+
+    config = Config(root=tmp_path / "second", postgres_dsn=dsn)
+    assert not config.data.exists()
+
+    class NoNetwork:
+        def __getattr__(self, name):
+            pytest.fail(f"Connecteur rappelé en reprise : {name}")
+
+    def reopened(config):
+        return Pilot(config, apify=NoNetwork(), codex=NoNetwork())
+
+    monkeypatch.setattr(studio.Config, "load", lambda: config)
+    monkeypatch.setattr(studio, "DiscoveryService", reopened)
+
+    async def resume():
+        async with studio.make_graph() as graph:
+            return await graph.ainvoke({"cycle_id": cycle})
+
+    resumed = asyncio.run(resume())
+    assert resumed["report_id"] == ids[0]
+    assert Path(resumed["report_path"]).read_bytes() == original
+    assert Path(resumed["report_path"]).is_relative_to(config.data)
+    pilot = reopened(Config(root=tmp_path / "troisieme", postgres_dsn=dsn))
+    final = pilot.run(cycle)
+    assert final["report_id"] == resumed["report_id"]
+    assert Path(final["report_path"]).read_bytes() == original
+    assert Path(final["report_path"]).is_relative_to(pilot.store.data)
+    # Cycle préexistant sans fil technique : réutilise les faits du métier.
+    legacy = pilot.create(cv_data=(b"%PDF-history", CV), prompt="missions only")
+    pilot.ingest(legacy, "fixture", raw("12121"))
+    pilot.codex = FakeCodex()
+    pilot.qualify({"cycle_id": legacy})
+    pilot.store.execute("UPDATE cycles SET status='collected' WHERE id=?", (legacy,))
+    legacy_report = pilot.report({"cycle_id": legacy})["report_id"]
+    pilot.codex = NoNetwork()
+    assert pilot.run(legacy)["report_id"] == legacy_report
+    pilot.store.close()
+
+    with psycopg.connect(dsn) as db:
+        assert (
+            db.execute(
+                "SELECT count(*) FROM runtime_g1.checkpoints WHERE thread_id=%s", (cycle,)
+            ).fetchone()[0]
+            >= 4
+        )
+        assert db.execute(
+            "SELECT count(*) FROM discovery.reports WHERE cycle_id=%s", (cycle,)
+        ).fetchone() == (1,)
+        assert db.execute(
+            """SELECT count(*) FROM discovery.attempts a JOIN discovery.cycle_items i
+                ON i.qualification_id=a.qualification_id WHERE i.cycle_id=%s""",
+            (cycle,),
+        ).fetchone() == (1,)
+        assert not db.execute(
+            "SELECT has_schema_privilege(current_user, 'runtime_g1', 'CREATE')"
+        ).fetchone()[0]
+        assert not db.execute(
+            "SELECT has_schema_privilege('linkedin_applications', 'runtime_g1', 'USAGE')"
+        ).fetchone()[0]

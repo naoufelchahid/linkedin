@@ -4,11 +4,13 @@ import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, asynccontextmanager
-from contextvars import copy_context
+from contextvars import Context, copy_context
 from uuid import UUID
 
+from langgraph.graph import END, START, StateGraph
+
 from .config import Config
-from .graph import build_graph
+from .graph import State, build_graph
 from .launch import Search
 from .workflow import DiscoveryService
 
@@ -17,6 +19,7 @@ from .workflow import DiscoveryService
 async def make_graph():
     # Un même thread possède la connexion SQLite et le verrou pendant le run.
     # L’inspection du schéma et de la topologie n’ouvre aucun stockage.
+    config = await asyncio.to_thread(Config.load)
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="discovery-studio")
     stack = ExitStack()
     service = None
@@ -36,7 +39,7 @@ async def make_graph():
         if state.get("search") is not None and UUID(requested).hex != requested:
             raise ValueError("cycle_id_must_be_uuid_hex")
         if service is None:
-            service = DiscoveryService(Config.load())
+            service = DiscoveryService(config)
             stack.callback(service.store.close)
             stack.callback(service.flush_traces)
             stack.enter_context(service.store.locked())
@@ -55,6 +58,10 @@ async def make_graph():
             cycle_id = requested
         if requested != cycle_id:
             raise ValueError("cycle_id_changed_during_execution")
+        if name == "run":
+            # Studio fournit son propre contexte LangGraph. Le fil de découverte
+            # est celui du cycle, même si le client Studio change de fil.
+            return Context().run(service.run, cycle_id)
         with service.tracing(cycle_id):
             return getattr(service, name)(state)
 
@@ -69,7 +76,20 @@ async def make_graph():
             return await in_worker(execute, "report", state)
 
     try:
-        yield build_graph(Nodes())
+        if config.postgres_dsn:
+
+            async def run_cycle(state):
+                return await in_worker(execute, "run", state)
+
+            yield (
+                StateGraph(State)
+                .add_node("discover", run_cycle)
+                .add_edge(START, "discover")
+                .add_edge("discover", END)
+                .compile(name="graphe1.discovery")
+            )
+        else:
+            yield build_graph(Nodes())
     finally:
         try:
             await in_worker(stack.close)

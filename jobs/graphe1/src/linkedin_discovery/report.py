@@ -1,8 +1,11 @@
 """Rapports locaux autonomes, privés et immuables ; aucune ressource distante."""
 
 import json
+import os
+import tempfile
 import uuid
 from html import escape
+from uuid import UUID
 
 from .model import canonical_url, digest, dump, now, rank
 
@@ -20,7 +23,42 @@ def sample(items):
     return selected[:15]
 
 
-def make_report(store, cycle_id):
+def local_report(store, report_id, html, sha256):
+    if UUID(report_id).hex != report_id or digest(html) != sha256:
+        raise ValueError("report_integrity_failed")
+    directory = store.data / "reports"
+    directory.mkdir(exist_ok=True, mode=0o700)
+    path = directory / (report_id + ".html")
+    if not path.exists():
+        with tempfile.NamedTemporaryFile(dir=directory) as stream:
+            stream.write(html.encode("utf-8"))
+            stream.flush()
+            try:
+                os.link(stream.name, path)
+            except FileExistsError:
+                pass
+    if digest(path.read_bytes()) != sha256:
+        raise ValueError("report_integrity_failed")
+    return path
+
+
+def restore_report(store, cycle_id, report_id):
+    row = store.db.execute(
+        "SELECT snapshot, sha256 FROM reports WHERE cycle_id=? AND id=?", (cycle_id, report_id)
+    ).fetchone()
+    if row:
+        html = render_report(json.loads(row["snapshot"]))
+        return local_report(store, report_id, html, row["sha256"])
+    return None
+
+
+def make_report(store, cycle_id, report_id=None):
+    if report_id is not None:
+        if UUID(report_id).hex != report_id:
+            raise ValueError("invalid_report_id")
+        existing = restore_report(store, cycle_id, report_id)
+        if existing is not None:
+            return report_id, existing
     cycle = store.cycle(cycle_id)
     items = store.items(cycle_id)
     selected = sample(items)
@@ -46,7 +84,7 @@ def make_report(store, cycle_id):
             (cycle_id,),
         )
     ]
-    report_id = uuid.uuid4().hex
+    report_id = report_id or uuid.uuid4().hex
     snapshot = dict(
         id=report_id,
         cycle_id=cycle_id,
@@ -69,16 +107,12 @@ def make_report(store, cycle_id):
     )
 
     html = render_report(snapshot)
-    reports = store.data / "reports"
-    reports.mkdir(exist_ok=True, mode=0o700)
-    path = reports / (report_id + ".html")
-    with path.open("x") as stream:
-        stream.write(html)
-    path.chmod(0o600)
+    sha256 = digest(html)
+    path = store.data / "reports" / (report_id + ".html")
     with store.transaction():
         store.db.execute(
             "INSERT INTO reports VALUES(?,?,?,?,?,?)",
-            (report_id, cycle_id, snapshot["created_at"], dump(snapshot), str(path), digest(html)),
+            (report_id, cycle_id, snapshot["created_at"], dump(snapshot), str(path), sha256),
         )
         store.db.executemany(
             "INSERT INTO review_items VALUES(?,?,?,?)",
@@ -87,7 +121,7 @@ def make_report(store, cycle_id):
                 for n, i in enumerate(selected, 1)
             ],
         )
-    return report_id, path
+    return report_id, local_report(store, report_id, html, sha256)
 
 
 def render_report(snapshot):

@@ -7,9 +7,12 @@ from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+import psycopg
 from jsonschema import ValidationError
 from langchain_core.tracers.langchain import wait_for_all_tracers
+from langgraph.checkpoint.postgres import PostgresSaver
 from langsmith import Client, trace, tracing_context
+from psycopg.rows import dict_row
 
 from .adapters.pdf import read_pdf
 from .collection import attach_profile_run, start_profile_run
@@ -18,7 +21,7 @@ from .documents import cycle_cv
 from .graph import build_graph
 from .model import checked_result, digest, normalize
 from .prompts import qualification_prompt
-from .report import make_report
+from .report import make_report, restore_report
 from .store import Store
 
 
@@ -219,6 +222,8 @@ class DiscoveryService:
         if settings["source"] == "replay":
             self.store.execute("UPDATE cycles SET status='replay' WHERE id=?", (ident,))
             return {"collection": self.collection_summary(ident)}
+        if self.config.postgres_dsn and cycle["status"] == "collected":
+            return {"collection": self.collection_summary(ident)}
         with self.step(ident, "collect"):
             for profile in settings["profiles"]:
                 start_profile_run(self.store, self.apify, ident, profile, settings)
@@ -376,7 +381,11 @@ class DiscoveryService:
 
     def report(self, state):
         with self.step(state["cycle_id"], "report"):
-            report_id, path = make_report(self.store, state["cycle_id"])
+            report_id, path = make_report(
+                self.store,
+                state["cycle_id"],
+                state.get("report_id") if self.config.postgres_dsn else None,
+            )
         return dict(
             report_id=report_id,
             report_path=str(path),
@@ -389,11 +398,46 @@ class DiscoveryService:
     def run(self, cycle_id):
         try:
             with self.store.locked(), self.tracing(cycle_id):
+                if self.config.postgres_dsn:
+                    return self._run_postgres(cycle_id)
                 return self.graph().invoke(
                     {"cycle_id": cycle_id}, {"run_name": "graphe1.discovery"}
                 )
         finally:
             self.flush_traces()
+
+    def _run_postgres(self, cycle_id):
+        cycle = self.store.cycle(cycle_id)
+        config = {"run_name": "graphe1.discovery", "configurable": {"thread_id": cycle_id}}
+        with psycopg.connect(self.config.postgres_dsn, autocommit=True, row_factory=dict_row) as db:
+            db.execute("SET search_path TO pg_catalog, runtime_g1")
+
+            def checkpoint_report(state):
+                result = self.report(state)
+                return {"report_id": result["report_id"], "status": result["status"]}
+
+            graph = build_graph(self, PostgresSaver(db), report_node=checkpoint_report)
+            checkpoint = graph.get_state(config)
+            if checkpoint.next:
+                # LangGraph reprend les tâches restantes du fil, y compris leurs écritures durables.
+                state = graph.invoke(None, config, durability="sync")
+            elif checkpoint.values and cycle["status"] != "partial":
+                state = dict(checkpoint.values)
+            else:
+                # Nouveau fil ou collecte partielle : reprendre les runs Apify enregistrés.
+                # Réserver la référence du rapport avant sa transaction SQL.
+                report_id = uuid.uuid4().hex
+                if not checkpoint.values and cycle["status"] in ("collected", "replay"):
+                    previous = self.status(cycle_id)["report"]
+                    if previous:
+                        report_id = previous["id"]
+                state = graph.invoke(
+                    {"cycle_id": cycle_id, "report_id": report_id}, config, durability="sync"
+                )
+        path = restore_report(self.store, cycle_id, state["report_id"])
+        if path is None:
+            raise ValueError("report_not_found")
+        return {**state, "report_path": str(path)}
 
     def tracing(self, cycle_id):
         return tracing_context(

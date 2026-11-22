@@ -15,15 +15,15 @@ class State(TypedDict, total=False):
     qualification_counts: dict[str, int]
 
 
-def build_graph(service):
+def build_graph(service, checkpointer=None, report_node=None):
     return (
         StateGraph(State)
         .add_node("collect", service.collect)
         .add_node("qualify", service.qualify)
-        .add_node("report", service.report)
+        .add_node("report", report_node or service.report)
         .add_edge(START, "collect")
         .add_edge("collect", "qualify")
         .add_edge("qualify", "report")
         .add_edge("report", END)
-        .compile(name="graphe1.discovery")
+        .compile(name="graphe1.discovery", checkpointer=checkpointer)
     )
