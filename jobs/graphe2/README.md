@@ -143,3 +143,9 @@ Pour un obstacle avant transmission, « Vérifier le correctif » déclenche une
 ### Accord et rapprochement du mail de suivi
 
 Après le reçu SQL du dépôt, `applications.followup_reviews` conserve le destinataire, l’objet, le corps, les noms et les empreintes des pièces présentés pour chaque demande. Le clic valide la dernière demande et sa version. Le worker contrôle les octets figés avant de réserver l’unique tentative dans `applications.followup_sends`. En cas de réponse SMTP perdue, le worker recherche le Message-ID de cette tentative dans le dossier configuré des messages envoyés. Une preuve manquante maintient le suivi à vérifier. Le mode recette habituel affiche uniquement l’aperçu.
+
+### Checkpoints du worker PostgreSQL
+
+Chaque processus G2 reprend le fil du dossier depuis `runtime_g2`, avec le saver LangGraph PostgreSQL verrouillé par le package. Le rôle de migration crée les tables. Le rôle applicatif lit et écrit les checkpoints, les données des canaux et les interruptions. Un verrou de session PostgreSQL sérialise les écritures d’un fil et se libère à la déconnexion. La protection durable du tour de dépôt s’applique aussi après perte du verrou. Le worker peut reconstituer les pièces figées dans son propre répertoire privé.
+
+Les appels historiques avec file SQLite continuent d’utiliser leur fichier `checkpoints.sqlite3`. La répétition #21 conserve le fichier historique et ses identifiants de fils dans la copie de retour arrière. Les dossiers de cette copie dont les anciens fils mélangent les modes restent en rapprochement dans `applications.legacy_holds`.

@@ -142,14 +142,14 @@ def live_browser(directory):
                     {**item, "submission": active}, outcome={"status": "ready"}
                 )
                 waiting = other.run(item)
-                assert waiting["question"]["kind"] == "uncertain"
+                assert waiting["status"] == "in_progress"
                 assert portal.clicks == 0 and not pending.done()
             finally:
                 release.set()
             stale = pending.result(timeout=20)
             assert stale["question"]["kind"] == "uncertain"
             assert not queue.submissions.receipt(item["dossier"])
-        assert other.reconcile(waiting)["status"] == "submitted"
+        assert other.reconcile(stale)["status"] == "submitted"
         assert portal.clicks == portal.turns == 1
     finally:
         old.close()

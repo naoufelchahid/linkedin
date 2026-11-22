@@ -246,10 +246,18 @@ def main():
                 ).fetchone()["n"]
                 == 0
             )
+            rows = db.execute("""
+                SELECT convert_to(checkpoint::text || metadata::text,'UTF8') AS payload FROM runtime_g2.checkpoints
+                UNION ALL SELECT blob FROM runtime_g2.checkpoint_blobs WHERE blob IS NOT NULL
+                UNION ALL SELECT blob FROM runtime_g2.checkpoint_writes
+            """).fetchall()
+            assert rows and all(
+                token.encode() not in row["payload"]
+                for row in rows
+                for token in tokens.values()
+            )
+        assert not (home / "checkpoints.sqlite3").exists()
         assert all(portal.visits[n] == 2 for n in "AB")
-        for path in home.glob("checkpoints.sqlite3*"):
-            content = path.read_bytes()
-            assert all(t.encode() not in content for t in tokens.values())
         print(
             "Deux messages Thunderbird en ordre inverse, deux reprises, panne isolée, zéro reçu et checkpoints expurgés."
         )

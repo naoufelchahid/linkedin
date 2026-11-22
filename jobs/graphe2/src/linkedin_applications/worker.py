@@ -62,7 +62,7 @@ class Worker:
                 msg = self.telegram.text(text, reply_markup={"force_reply": True})
             else:
                 if q["kind"] in {"mail", "recipe_mail"}:
-                    with frozen_draft(dossier["draft"]) as draft:
+                    with frozen_draft(self.runner.workflow.local_draft(dossier)) as draft:
                         if self.runner.workflow.draft_version(draft) != q["version"]:
                             self.runner.run(dossier, {"id": ident, "choice": "refresh"})
                             continue

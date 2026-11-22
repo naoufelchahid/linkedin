@@ -2,11 +2,13 @@
 
 import os
 import tempfile
+from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
 import psycopg
+from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -29,6 +31,25 @@ class PostgresQueue:
 
     def connect(self):
         return psycopg.connect(self.dsn, row_factory=dict_row)
+
+    @contextmanager
+    def checkpointer(self):
+        with psycopg.connect(
+            self.dsn, autocommit=True, prepare_threshold=0, row_factory=dict_row
+        ) as db:
+            db.execute("SET search_path TO pg_catalog, runtime_g2")
+            yield PostgresSaver(db)
+
+    @contextmanager
+    def checkpoint_lock(self, dossier):
+        # Réserver le fil complet, y compris les interruptions. La connexion est indépendante du saver.
+        with self.connect() as db:
+            db.autocommit = True
+            locked = db.execute(
+                "SELECT pg_try_advisory_lock(hashtextextended(%s, 110)) AS acquired",
+                (dossier,),
+            ).fetchone()["acquired"]
+            yield locked  # La fermeture de connexion libère le verrou, y compris après une panne.
 
     def selection(self, db, cycle):
         if not db.execute(

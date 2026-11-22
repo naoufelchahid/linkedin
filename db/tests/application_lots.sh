@@ -44,6 +44,16 @@ cli=(docker run --rm --network "$network" -e "APPLICATIONS_POSTGRES_DSN=host=db 
 followup_mail() {
     "${cli[@]}" --entrypoint python -v "$root/db/tests/followup_mail.py:/recette.py:ro" "$image" /recette.py
 }
+runtime_checkpoint() {
+    for phase in premier second; do
+        "${cli[@]}" --entrypoint python -v "$root/db/tests/runtime_checkpoint.py:/recette.py:ro" "$image" /recette.py "$phase"
+    done
+    echo "Interruption et reçu unique vérifiés depuis deux disques de workers indépendants."
+}
+if [[ ${1:-} == --runtime-checkpoint ]]; then
+    runtime_checkpoint
+    exit 0
+fi
 if [[ ${1:-} == --followup-mail ]]; then
     followup_mail
     exit 0
@@ -77,3 +87,4 @@ echo "Trois lots, deux dossiers, versions A et B et CV relus depuis le worker is
 "${cli[@]}" --entrypoint python -v "$root/db/tests/telegram_answers.py:/recette.py:ro" "$image" /recette.py
 "${cli[@]}" --entrypoint python -v "$root/db/tests/portal_obstacles.py:/recette.py:ro" "$image" /recette.py
 followup_mail
+runtime_checkpoint

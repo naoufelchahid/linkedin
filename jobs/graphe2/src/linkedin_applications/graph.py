@@ -183,7 +183,7 @@ class Workflow:
         if kind == "mail":
             if (
                 answer["choice"] == "approve"
-                and self.draft_version(state["draft"]) == question["version"]
+                and self.draft_version(self.local_draft(state)) == question["version"]
                 and (
                     not self.followup
                     or self.followup.approve(
@@ -415,6 +415,14 @@ class Workflow:
                     )
         return update
 
+    def local_draft(self, state):
+        draft = state["draft"]
+        return (
+            self.followup.local_draft(state["dossier"], draft)
+            if self.followup
+            else draft
+        )
+
     @staticmethod
     def draft_version(draft):
         return version(manifest(draft))
@@ -456,7 +464,7 @@ class Workflow:
     def prepare_mail(self, state):
         if state["mode"] != "production" or not state.get("evidence"):
             raise ValueError("mail_mode_invalid")
-        if self.draft_version(state["draft"]) != state["mail_approval"]:
+        if self.draft_version(self.local_draft(state)) != state["mail_approval"]:
             return {"next_node": "draft"}
         update = self.open_attempt("mail")
         update["mail"]["version"] = state["mail_approval"]
@@ -476,7 +484,7 @@ class Workflow:
             attempt = {"id": ident, "version": existing["version"]}
             allowed = False
         if allowed:
-            with frozen_draft(state["draft"]) as exact:
+            with frozen_draft(self.local_draft(state)) as exact:
                 if self.draft_version(exact) != attempt["version"]:
                     return self.draft(state)
                 if self.followup and not self.followup.claim(

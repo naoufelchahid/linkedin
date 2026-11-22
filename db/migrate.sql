@@ -91,4 +91,9 @@ SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 25) A
     \ir migrations/025_web_operational_status.sql
     INSERT INTO discovery.schema_migrations (version) VALUES (25);
 \endif
+SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 110) AS pending \gset
+\if :pending
+    \ir migrations/110_runtime_g2.sql
+    INSERT INTO discovery.schema_migrations (version) VALUES (110);
+\endif
 COMMIT;

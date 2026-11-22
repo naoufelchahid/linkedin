@@ -52,6 +52,23 @@ class Followup:
             )
             yield db
 
+    def local_draft(self, dossier, draft):
+        """Résoudre les chemins du worker précédent à partir des pièces immuables du dossier."""
+        paths = [Path(name) for name in draft["attachments"]]
+        if all(path.is_file() for path in paths):
+            return draft
+        documents = {}
+        for role in ("cv", "letter"):
+            if local := self.queue.dossier_document(dossier, role):
+                documents[local.name] = local
+        return {
+            **draft,
+            "attachments": [
+                str(path if path.is_file() else documents.get(path.name, path))
+                for path in paths
+            ],
+        }
+
     def present(self, dossier, question, data):
         with self.transaction(dossier) as db:
             db.execute(

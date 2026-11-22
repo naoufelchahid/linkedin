@@ -21,6 +21,7 @@ BEGIN
     END IF;
 END $$;
 GRANT linkedin_selection TO linkedin_applications;
+CREATE SCHEMA IF NOT EXISTS runtime_g2 AUTHORIZATION linkedin_migrator;
 CREATE SCHEMA IF NOT EXISTS applications AUTHORIZATION linkedin_migrator;
 CREATE SCHEMA IF NOT EXISTS discovery AUTHORIZATION linkedin_migrator;
 CREATE SCHEMA IF NOT EXISTS documents AUTHORIZATION linkedin_migrator;

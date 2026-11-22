@@ -96,7 +96,15 @@ class Writer:
             or not result["subject"].strip()
         ):
             raise ConnectorError("mail_invalid")
+        if self.documents:
+            cv = str(self.documents.dossier_document(state["dossier"], "cv"))
+            letter = self.documents.dossier_letter(state["dossier"]) or self.letter(
+                state
+            )
+        else:
+            cv = state["cv"]
+            letter = state.get("letter") or self.letter(state)
         return {
             **result,
-            "attachments": [state["cv"], state.get("letter") or self.letter(state)],
+            "attachments": [cv, letter],
         }

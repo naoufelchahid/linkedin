@@ -1,6 +1,7 @@
 """Pilotage du checkpoint et reprise depuis la file locale."""
 
 import sqlite3
+from contextlib import ExitStack, closing, nullcontext
 from datetime import date
 from pathlib import Path
 
@@ -18,10 +19,16 @@ def config(dossier):
 
 class Runner:
     def __init__(self, queue, browser, writer, mail, now=None, *, trace_port=None):
-        path = queue.data / "checkpoints.sqlite3"
-        path.touch(mode=0o600, exist_ok=True)
-        self.connection = sqlite3.connect(path, check_same_thread=False)
-        saver = SqliteSaver(self.connection)
+        self.resources = ExitStack()
+        if hasattr(queue, "checkpointer"):
+            saver = self.resources.enter_context(queue.checkpointer())
+        else:
+            path = queue.data / "checkpoints.sqlite3"
+            path.touch(mode=0o600, exist_ok=True)
+            db = self.resources.enter_context(
+                closing(sqlite3.connect(path, check_same_thread=False))
+            )
+            saver = SqliteSaver(db)
         self.queue = queue
         self.workflow = Workflow(
             browser,
@@ -38,7 +45,7 @@ class Runner:
 
     def close(self):
         self.workflow.trace.close()
-        self.connection.close()
+        self.resources.close()
 
     def snapshots(self):
         for dossier in dict.fromkeys(item["dossier"] for item in self.queue.items()):
@@ -50,8 +57,27 @@ class Runner:
             for snap in self.snapshots()
         )
 
+    def checkpoint_lock(self, dossier):
+        return (
+            self.queue.checkpoint_lock(dossier)
+            if hasattr(self.queue, "checkpoint_lock")
+            else nullcontext(True)
+        )
+
+    def busy(self, item):
+        return {
+            **self.graph.get_state(config(item["dossier"])).values,
+            "dossier": item["dossier"],
+            "status": "in_progress",
+        }
+
     def run(self, item, reply=None):
-        with tracing_context(enabled=False):
+        with (
+            tracing_context(enabled=False),
+            self.checkpoint_lock(item["dossier"]) as acquired,
+        ):
+            if not acquired:
+                return self.busy(item)
             try:
                 return self._run(item, reply)
             finally:
@@ -140,7 +166,12 @@ class Runner:
         )
 
     def reconcile_mail(self, state):
-        with tracing_context(enabled=False):
+        with (
+            tracing_context(enabled=False),
+            self.checkpoint_lock(state["dossier"]) as acquired,
+        ):
+            if not acquired:
+                return self.busy(state)
             return self.graph.invoke(
                 {"next_node": "send_mail"}, config(state["dossier"]), durability="sync"
             )
@@ -148,11 +179,12 @@ class Runner:
     def reconcile(self, state):
         with (
             tracing_context(enabled=False),
+            self.checkpoint_lock(state["dossier"]) as acquired,
             self.workflow.trace.step(
                 state["dossier"], state.get("submission"), "rapprochement"
             ),
         ):
-            return self._reconcile(state)
+            return self._reconcile(state) if acquired else self.busy(state)
 
     def _reconcile(self, state):
         stored = self.workflow.saved_submission(state)
@@ -160,7 +192,7 @@ class Runner:
         if not receipt:
             return state
         if state.get("question"):
-            return self.run(
+            return self._run(
                 state,
                 {
                     "id": state["question"]["id"],
