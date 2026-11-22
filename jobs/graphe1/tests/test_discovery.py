@@ -642,3 +642,70 @@ def test_two_cycle_documents_postgres(tmp_path, monkeypatch):
             "SELECT has_table_privilege(current_user, 'documents.cv_versions', 'UPDATE')"
         ).fetchone()[0]
     pilot.store.close()
+
+
+@pytest.mark.skipif(not os.getenv("TEST_CV_POSTGRES_DSN"), reason="recette PostgreSQL isolée")
+def test_postgres_qualification_review_replay(tmp_path):
+    import psycopg
+
+    class MixedCodex(FakeCodex):
+        def qualify(self, offer, cv, prompt):
+            if offer["description"] == "Panne":
+                raise ConnectorError("codex_unavailable")
+            if offer["description"] == "Mission imprécise":
+                return {
+                    **result(offer),
+                    "incertitude": True,
+                    "competence_cv": "",
+                    "mission_citee": "",
+                }
+            return result(offer)
+
+    dsn = os.environ["TEST_CV_POSTGRES_DSN"]
+    config = Config(root=tmp_path, postgres_dsn=dsn, collect_seconds=0)
+    apify = FakeApify([[raw("661"), raw("662", "Mission imprécise"), raw("663", "Panne")], [], []])
+    pilot = Pilot(config, apify=apify, codex=MixedCodex())
+    cycle = create(pilot)
+    state = pilot.run(cycle)
+    report = state["report_id"]
+    original = Path(state["report_path"]).read_bytes()
+    pilot.store.validate_report(report)
+    pilot.store.validate_report(report)
+    pilot.store.review(report, 1, "écarter", "Correction de recette")
+    pilot.store.close()
+    assert not (config.data / "discovery.sqlite3").exists()
+
+    # Un autre worker retrouve le rapport et les preuves depuis PostgreSQL.
+    pilot = Pilot(Config(root=tmp_path / "reprise", postgres_dsn=dsn), codex=MixedCodex())
+    items = {r["offer"]["description"]: r for r in pilot.store.items(cycle)}
+    corrected = items["Construire des solutions IA avec GraphRAG."]
+    assert corrected["result"]["verdict"] == "retenir"
+    assert corrected["effective_verdict"] == "écarter"
+    assert items["Mission imprécise"]["result"]["incertitude"]
+    assert items["Mission imprécise"]["human_verdict"] is None
+    failed = items["Panne"]
+    assert failed["status"] == "error" and failed["effective_verdict"] is None
+    with psycopg.connect(dsn) as db:
+        assert db.execute(
+            "SELECT count(*) FROM discovery.attempts WHERE qualification_id=%s",
+            (failed["qualification_id"],),
+        ).fetchone() == (3,)
+        assert db.execute(
+            "SELECT count(*) FROM discovery.pilot_validations WHERE report_id=%s", (report,)
+        ).fetchone() == (1,)
+        assert db.execute(
+            "SELECT count(*) FROM discovery.reviews WHERE report_id=%s", (report,)
+        ).fetchone() == (1,)
+        snapshot = json.loads(
+            db.execute("SELECT snapshot FROM discovery.reports WHERE id=%s", (report,)).fetchone()[
+                0
+            ]
+        )
+        assert len(snapshot["selected"]) == 2
+        assert all(i["human_verdict"] is None for i in snapshot["selected"])
+    replay = pilot.replay(report, prompt="Rejeu de recette")
+    pilot.run(replay)
+    comparisons = pilot.compare(report, replay)["comparisons"]
+    assert [r["agrees"] for r in comparisons] == [False, None]
+    assert Path(state["report_path"]).read_bytes() == original
+    pilot.store.close()

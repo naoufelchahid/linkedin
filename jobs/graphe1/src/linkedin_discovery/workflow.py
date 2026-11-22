@@ -291,8 +291,8 @@ class DiscoveryService:
             profiles=settings["profiles"],
             limit=settings["limit"],
             offers=self.store.db.execute(
-                "SELECT count(*) FROM occurrences WHERE cycle_id=?", (cycle_id,)
-            ).fetchone()[0],
+                "SELECT count(*) AS total FROM occurrences WHERE cycle_id=?", (cycle_id,)
+            ).fetchone()["total"],
             runs=[
                 dict(row)
                 for row in self.store.db.execute(

@@ -11,8 +11,10 @@ from importlib.resources import files
 from pathlib import Path
 
 from .adapters.pdf import extract_text
-from .documents import freeze_cv
+from .documents import freeze_cv_in
 from .model import digest, dump, now, offer_url
+from .postgres_import import insert_offer
+from .postgres_store import PostgresConnection
 
 SCHEMA = files("linkedin_discovery.resources").joinpath("schema.sql").read_text(encoding="utf-8")
 
@@ -23,6 +25,10 @@ class Store:
         self.data = Path(data)
         self.data.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.data.chmod(0o700)
+        self._lock_depth = 0
+        if postgres_dsn:
+            self.db = PostgresConnection(postgres_dsn)
+            return
         path = self.data / "discovery.sqlite3"
         fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
         os.close(fd)
@@ -30,7 +36,6 @@ class Store:
         self.db = sqlite3.connect(path, timeout=10)
         self.db.row_factory = sqlite3.Row
         self.db.create_function("offer_url", 1, offer_url, deterministic=True)
-        self._lock_depth = 0
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
         if version not in (0, 1):
             self.db.close()
@@ -57,14 +62,26 @@ class Store:
             except BlockingIOError:
                 raise RuntimeError("discovery_already_running") from None
             try:
+                if (
+                    self.postgres_dsn
+                    and not self.db.execute(
+                        "SELECT pg_try_advisory_lock(1765839006) AS acquired"
+                    ).fetchone()["acquired"]
+                ):
+                    raise RuntimeError("discovery_already_running")
                 self._lock_depth = 1
                 yield
             finally:
+                if self._lock_depth and self.postgres_dsn:
+                    self.db.execute("SELECT pg_advisory_unlock(1765839006)")
                 self._lock_depth = 0
                 fcntl.flock(stream, fcntl.LOCK_UN)
 
+    def transaction(self):
+        return self.db.transaction() if self.postgres_dsn else self.db
+
     def execute(self, sql, args=()):
-        with self.db:
+        with self.transaction():
             return self.db.execute(sql, args)
 
     def cycle(self, ident):
@@ -95,23 +112,39 @@ class Store:
             raise ValueError("saved_cv_integrity_failed")
         if cv_text is None and not self.postgres_dsn:
             cv_text = extract_text(cv_bytes)
-        # Réserver l'identifiant local avant de publier son association PostgreSQL.
+        # L’association documentaire et le cycle partagent la transaction PostgreSQL.
         # Une panne de publication annule le cycle avant toute collecte.
-        with self.db:
+        with self.transaction():
             self.db.execute(
                 """INSERT INTO cycles(id,created_at,cv_hash,cv_text,prompt_hash,prompt,settings)
                    VALUES(?,?,?,?,?,?,?)""",
                 (ident, now(), cv_hash, cv_text or "", digest(prompt), prompt, dump(settings)),
             )
             if self.postgres_dsn:
-                markdown = freeze_cv(self.postgres_dsn, ident, cv_bytes, cv_text, provenance)
+                markdown = freeze_cv_in(self.db.connection, ident, cv_bytes, cv_text, provenance)
                 self.db.execute("UPDATE cycles SET cv_text=? WHERE id=?", (markdown, ident))
         return ident
 
     def ingest(self, cycle_id, profile, raw, offer=None, error=""):
+        if self.postgres_dsn:
+            with self.transaction():
+                if offer and offer["url"] and profile != "review-replay":
+                    first = self.db.execute(
+                        """SELECT v.offer_key FROM occurrences o JOIN versions v ON v.id=o.version_id
+                           WHERE o.canonical_url=? ORDER BY o.observed_at,v.id LIMIT 1""",
+                        (offer["url"],),
+                    ).fetchone()
+                    if first:
+                        offer = {**offer, "key": first["offer_key"]}
+                with self.db.connection.cursor() as cursor:
+                    payload = self.db.execute(
+                        "SELECT ?::jsonb::text AS raw", (dump(raw),)
+                    ).fetchone()["raw"]
+                    version, _ = insert_offer(cursor, cycle_id, profile, raw, payload, offer or {})
+                return version
         raw_hash = digest(dump(raw))
         version_id = None
-        with self.db:
+        with self.transaction():
             if offer:
                 if offer["url"] and profile != "review-replay":
                     first = self.db.execute(
@@ -152,11 +185,12 @@ class Store:
             (cycle["id"], version_id, version_id),
         )
         self.execute(
-            "INSERT OR IGNORE INTO qualifications(id,version_id,cv_hash,prompt_hash,status) VALUES(?,?,?,?,?)",
+            "INSERT INTO qualifications(id,version_id,cv_hash,prompt_hash,status) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING",
             (ident, version_id, cycle["cv_hash"], cycle["prompt_hash"], "pending"),
         )
         self.execute(
-            "INSERT OR REPLACE INTO cycle_items VALUES(?,?,?)", (cycle["id"], version_id, ident)
+            "INSERT INTO cycle_items VALUES(?,?,?) ON CONFLICT(cycle_id,version_id) DO UPDATE SET qualification_id=excluded.qualification_id",
+            (cycle["id"], version_id, ident),
         )
         return dict(self.db.execute("SELECT * FROM qualifications WHERE id=?", (ident,)).fetchone())
 
@@ -174,8 +208,9 @@ class Store:
         )
         number = (
             self.db.execute(
-                "SELECT count(*) FROM attempts WHERE qualification_id=?", (qualification_id,)
-            ).fetchone()[0]
+                "SELECT count(*) AS total FROM attempts WHERE qualification_id=?",
+                (qualification_id,),
+            ).fetchone()["total"]
             + 1
         )
         if number > 3:
@@ -198,10 +233,10 @@ class Store:
             if result
             else "error"
         )
-        with self.db:
+        with self.transaction():
             if rejected_result is not None:
                 self.db.execute(
-                    "INSERT OR REPLACE INTO attempt_responses VALUES(?,?,?)",
+                    "INSERT INTO attempt_responses VALUES(?,?,?) ON CONFLICT(qualification_id,number) DO UPDATE SET response=excluded.response",
                     (qualification_id, number, dump(rejected_result)),
                 )
             self.db.execute(
@@ -248,6 +283,14 @@ class Store:
         self.execute(
             "INSERT INTO reviews(report_id,number,version_id,verdict,note,created_at) VALUES(?,?,?,?,?,?)",
             (report_id, number, item["version_id"], verdict, note, now()),
+        )
+
+    def validate_report(self, report_id):
+        if not self.db.execute("SELECT id FROM reports WHERE id=?", (report_id,)).fetchone():
+            raise ValueError("report_not_found")
+        self.execute(
+            "INSERT INTO pilot_validations(report_id,created_at) VALUES(?,?) ON CONFLICT DO NOTHING",
+            (report_id, now()),
         )
 
     def event(self, cycle_id, step, status, duration, technical_id=""):

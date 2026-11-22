@@ -75,7 +75,7 @@ def make_report(store, cycle_id):
     with path.open("x") as stream:
         stream.write(html)
     path.chmod(0o600)
-    with store.db:
+    with store.transaction():
         store.db.execute(
             "INSERT INTO reports VALUES(?,?,?,?,?,?)",
             (report_id, cycle_id, snapshot["created_at"], dump(snapshot), str(path), digest(html)),

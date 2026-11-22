@@ -9,6 +9,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import psycopg
+
 from .config import Config
 from .connectors import ConnectorError
 from .workflow import DiscoveryService
@@ -52,6 +54,10 @@ def main(argv=None):
     review.add_argument("--number", type=int, required=True)
     review.add_argument("--verdict", choices=["retenir", "écarter"], required=True)
     review.add_argument("--note", default="")
+    validation = commands.add_parser(
+        "validate-report", help="Enregistrer l’accord global sur ce rapport"
+    )
+    validation.add_argument("--report", required=True)
     replay = commands.add_parser(
         "replay", help="Rejouer exactement les annonces du rapport avec le CV sauvegardé"
     )
@@ -108,6 +114,10 @@ def main(argv=None):
             result = dict(
                 status="recorded", report_id=args.report, number=args.number, verdict=args.verdict
             )
+        elif args.command == "validate-report":
+            with pilot.store.locked():
+                pilot.store.validate_report(args.report)
+            result = dict(status="validated", report_id=args.report)
         elif args.command == "replay":
             prompt = args.prompt_file.read_text() if args.prompt_file else None
             with pilot.store.locked():
@@ -152,7 +162,7 @@ def entrypoint(argv=None):
     except KeyboardInterrupt:
         print(json.dumps({"status": "interrupted", "code": "resume_same_cycle"}), file=sys.stderr)
         code = 130
-    except (ConnectorError, ValueError, OSError, RuntimeError, sqlite3.Error) as exc:
+    except (ConnectorError, ValueError, OSError, RuntimeError, sqlite3.Error, psycopg.Error) as exc:
         safe = {
             "cycle_not_found",
             "report_not_found",

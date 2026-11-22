@@ -7,11 +7,18 @@ from .model import digest
 
 
 def freeze_cv(dsn, cycle_id, pdf, text, provenance):
-    sha256 = digest(pdf)
     with psycopg.connect(dsn) as db:
+        return freeze_cv_in(db, cycle_id, pdf, text, provenance)
+
+
+def freeze_cv_in(db, cycle_id, pdf, text, provenance):
+    from psycopg.rows import tuple_row
+
+    sha256 = digest(pdf)
+    with db.cursor(row_factory=tuple_row) as cursor:
         # Sérialise l'extraction si deux cycles publient le même PDF simultanément.
-        db.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (sha256,))
-        row = db.execute(
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (sha256,))
+        row = cursor.execute(
             "SELECT markdown FROM documents.cv_versions WHERE sha256 = %s", (sha256,)
         ).fetchone()
         if row:
@@ -22,17 +29,17 @@ def freeze_cv(dsn, cycle_id, pdf, text, provenance):
             if not body.strip():
                 raise ValueError("cv_text_unreadable")
             markdown = "# Curriculum vitæ\n\n" + body.replace("\f", "\n\n").strip()
-            db.execute(
+            cursor.execute(
                 """INSERT INTO documents.cv_versions (sha256, pdf, markdown, provenance)
                    VALUES (%s, %s, %s, %s)""",
                 (sha256, pdf, markdown, provenance),
             )
-        db.execute(
+        cursor.execute(
             """INSERT INTO discovery.cycle_cv (cycle_id, cv_sha256) VALUES (%s, %s)
                ON CONFLICT (cycle_id) DO NOTHING""",
             (cycle_id, sha256),
         )
-        bound = db.execute(
+        bound = cursor.execute(
             "SELECT cv_sha256 FROM discovery.cycle_cv WHERE cycle_id = %s", (cycle_id,)
         ).fetchone()
         if bound != (sha256,):

@@ -27,39 +27,44 @@ def import_collection(connection, cycle_id, profile, dataset_json):
                 offer = normalize(raw)
             except (TypeError, ValueError):
                 offer = {}
-            version_id = None
-            if offer:
-                content = dump(offer)
-                version_id = digest(content)
-                cursor.execute(
-                    """INSERT INTO discovery.versions (id, offer_key, content)
-                       VALUES (%s, %s, %s::jsonb) ON CONFLICT (id) DO NOTHING""",
-                    (version_id, offer["key"], content),
-                )
-            contract = raw.get("contractType") or raw.get("employmentType") or raw.get("jobType")
-            cursor.execute(
-                """INSERT INTO discovery.occurrences (
-                       cycle_id, profile, raw_hash, raw, version_id, error, title,
-                       contract_type, company, location, canonical_url, missions
-                   ) VALUES (%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s)
-                   ON CONFLICT (cycle_id, profile, raw_hash) DO NOTHING""",
-                (
-                    cycle_id,
-                    profile,
-                    digest(payload),
-                    payload,
-                    version_id,
-                    None if offer else "announcement_unusable",
-                    offer.get("title") or None,
-                    plain(contract) or None,
-                    offer.get("company") or None,
-                    offer.get("location") or None,
-                    offer.get("url") or None,
-                    offer.get("description") or None,
-                ),
-            )
-            inserted += cursor.rowcount
+            _, count = insert_offer(cursor, cycle_id, profile, raw, payload, offer)
+            inserted += count
     return inserted
+
+
+def insert_offer(cursor, cycle_id, profile, raw, payload, offer):
+    version_id = None
+    if offer:
+        content = dump(offer)
+        version_id = digest(content)
+        cursor.execute(
+            """INSERT INTO discovery.versions (id, offer_key, content)
+               VALUES (%s, %s, %s::jsonb) ON CONFLICT (id) DO NOTHING""",
+            (version_id, offer["key"], content),
+        )
+    contract = raw.get("contractType") or raw.get("employmentType") or raw.get("jobType")
+    cursor.execute(
+        """INSERT INTO discovery.occurrences (
+               cycle_id, profile, raw_hash, raw, version_id, error, title,
+               contract_type, company, location, canonical_url, missions
+           ) VALUES (%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT (cycle_id, profile, raw_hash) DO NOTHING""",
+        (
+            cycle_id,
+            profile,
+            digest(payload),
+            payload,
+            version_id,
+            None if offer else "announcement_unusable",
+            offer.get("title") or None,
+            plain(contract) or None,
+            offer.get("company") or None,
+            offer.get("location") or None,
+            offer.get("url") or None,
+            offer.get("description") or None,
+        ),
+    )
+    return version_id, cursor.rowcount
 
 
 def main():

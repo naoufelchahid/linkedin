@@ -42,3 +42,5 @@ CREATE TABLE IF NOT EXISTS reviews(
 CREATE TABLE IF NOT EXISTS events(
  id INTEGER PRIMARY KEY, cycle_id TEXT, step TEXT NOT NULL, status TEXT NOT NULL,
  duration REAL NOT NULL, created_at TEXT NOT NULL, technical_id TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS pilot_validations(
+ report_id TEXT PRIMARY KEY REFERENCES reports(id), created_at TEXT NOT NULL);

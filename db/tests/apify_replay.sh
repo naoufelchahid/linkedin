@@ -67,4 +67,5 @@ test "$(psql -XAtqc 'SELECT count(*) FROM discovery.versions')" = 1
 echo 'Rejeu PostgreSQL, transactions et droits vérifiés.'
 
 TEST_CV_POSTGRES_DSN="dbname=$PGDATABASE" "$python" -m pytest -q \
-    "$root/jobs/graphe1/tests/test_discovery.py::test_two_cycle_documents_postgres"
+    "$root/jobs/graphe1/tests/test_discovery.py::test_two_cycle_documents_postgres" \
+    "$root/jobs/graphe1/tests/test_discovery.py::test_postgres_qualification_review_replay"

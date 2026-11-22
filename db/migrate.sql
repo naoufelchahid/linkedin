@@ -16,4 +16,9 @@ SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 2) AS
     \ir migrations/002_cycle_cv.sql
     INSERT INTO discovery.schema_migrations (version) VALUES (2);
 \endif
+SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 3) AS pending \gset
+\if :pending
+    \ir migrations/003_qualification.sql
+    INSERT INTO discovery.schema_migrations (version) VALUES (3);
+\endif
 COMMIT;
