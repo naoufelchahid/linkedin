@@ -79,3 +79,9 @@ Les fixtures utilisent des portails et une messagerie simulés. Les sélecteurs,
 Construire l’image avec `docker build -t linkedin-applications jobs/graphe2`. Fournir au conteneur un répertoire d’état privé inscriptible par son UID 1000, un DSN `APPLICATIONS_POSTGRES_DSN` pour un login membre de `linkedin_applications`, et un identifiant stable `APPLICATIONS_CANDIDATE`. Appliquer les migrations SQL au préalable.
 
 La commande `linkedin-applications --state /etat launch --cycle UUID --mode recipe --queue-only` ouvre le lot sans lancer la navigation. Le worker peut ensuite reprendre via `serve`. Les anciens appels avec `--discovery` et sans DSN gardent leur lecture SQLite. Chaque dossier SQL garde la version d’annonce et le CV du premier lot correspondant au candidat, à l’identité de l’offre et au mode. Les octets du CV sont matérialisés dans l’état privé du worker lorsqu’il prend le dossier. La recette autonome se lance par `db/tests/application_lots.sh`.
+
+### Observer une tentative en recette
+
+Le worker conserve le traçage automatique de l’état LangGraph désactivé. `APPLICATIONS_TRACE_LOCAL_PORT` permet d’observer la tentative de dépôt sur un collecteur local au format [REST de LangSmith](https://docs.langchain.com/langsmith/trace-with-api). La destination est le loopback du worker, sans proxy, redirection ou clé. Le projet de recette est `graphe2-recette`. L’identifiant du run parent correspond à `applications.submission_attempts.id`. Les sous-étapes portent les UUID de tentative et de dossier. Les entrées et les sorties sont vides. Les interruptions portent un libellé fixe.
+
+`db/tests/application_lots.sh` exerce deux processus du worker Docker, un portail synthétique et un collecteur HTTP de recette. La vérification inspecte les POST et PATCH, leur hiérarchie après reprise et le reçu SQL quand le collecteur est arrêté. La réception et la recherche dans une instance LangSmith hébergée restent à vérifier.

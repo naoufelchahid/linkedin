@@ -17,19 +17,26 @@ def config(dossier):
 
 
 class Runner:
-    def __init__(self, queue, browser, writer, mail, now=None):
+    def __init__(self, queue, browser, writer, mail, now=None, *, trace_port=None):
         path = queue.data / "checkpoints.sqlite3"
         path.touch(mode=0o600, exist_ok=True)
         self.connection = sqlite3.connect(path, check_same_thread=False)
         saver = SqliteSaver(self.connection)
         self.queue = queue
         self.workflow = Workflow(
-            browser, writer, mail, Memory(queue.data), self.count, now
+            browser,
+            writer,
+            mail,
+            Memory(queue.data),
+            self.count,
+            now,
+            trace_port=trace_port,
         )
         self.workflow.submissions = getattr(queue, "submissions", None)
         self.graph = build(self.workflow, saver)
 
     def close(self):
+        self.workflow.trace.close()
         self.connection.close()
 
     def snapshots(self):
@@ -116,6 +123,15 @@ class Runner:
         )
 
     def reconcile(self, state):
+        with (
+            tracing_context(enabled=False),
+            self.workflow.trace.step(
+                state["dossier"], state.get("submission"), "rapprochement"
+            ),
+        ):
+            return self._reconcile(state)
+
+    def _reconcile(self, state):
         stored = self.workflow.saved_submission(state)
         receipt = stored["evidence"] if stored else self.workflow.browser.verify(state)
         if not receipt:

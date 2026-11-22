@@ -15,7 +15,8 @@ class Submissions:
     def receipt(self, dossier):
         with self.queue.connect() as db:
             row = db.execute(
-                """SELECT r.attempt_id::text AS id, r.evidence FROM applications.submission_receipts r
+                """SELECT r.attempt_id::text AS id, r.evidence, a.started_at FROM applications.submission_receipts r
+                   JOIN applications.submission_attempts a ON a.id=r.attempt_id
                    JOIN applications.dossiers d ON d.id=r.dossier_id WHERE d.id=%s AND d.candidate=%s""",
                 (dossier, self.queue.candidate),
             ).fetchone()
@@ -38,7 +39,7 @@ class Submissions:
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (dossier,)
             )
             row = db.execute(
-                """SELECT id::text, generation,status,outcome FROM applications.submission_attempts
+                """SELECT id::text, generation,status,outcome,started_at FROM applications.submission_attempts
                    WHERE dossier_id=%s AND (status<>'no_submission' OR id=%s)
                    ORDER BY generation DESC LIMIT 1""",
                 (dossier, requested),
@@ -53,7 +54,7 @@ class Submissions:
                           clock_timestamp()+%s * interval '1 second','transmitting'
                    FROM applications.dossiers d LEFT JOIN documents.dossier_letters l ON l.dossier_id=d.id
                    WHERE d.id=%s AND d.candidate=%s AND d.mode='production'
-                   RETURNING id::text,generation,status""",
+                   RETURNING id::text,generation,status,started_at""",
                 (requested, self.lease_seconds, dossier, self.queue.candidate),
             ).fetchone()
             if not row:

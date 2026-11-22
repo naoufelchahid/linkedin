@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
+from .telemetry import AttemptTrace
+
 ZONE = ZoneInfo("Africa/Casablanca")
 
 
@@ -45,7 +47,9 @@ def fingerprint(path):
 
 
 class Workflow:
-    def __init__(self, browser, writer, mail, memory, count, now=None):
+    def __init__(
+        self, browser, writer, mail, memory, count, now=None, *, trace_port=None
+    ):
         self.browser = browser
         self.writer = writer
         self.mail = mail
@@ -54,6 +58,7 @@ class Workflow:
         self.now = now or (lambda: datetime.now(ZONE))
         self._permits = set()
         self.submissions = None
+        self.trace = AttemptTrace(trace_port)
 
     def wait_for(self, kind, **details):
         return {
@@ -66,7 +71,11 @@ class Workflow:
         if self.submissions and (receipt := self.submissions.receipt(state["dossier"])):
             return {
                 "status": "submitted",
-                "submission": {"id": receipt["id"], "status": "confirmed"},
+                "submission": {
+                    "id": receipt["id"],
+                    "status": "confirmed",
+                    "started_at": receipt["started_at"].isoformat(),
+                },
                 "evidence": receipt["evidence"],
                 "next_node": "draft",
             }
@@ -75,7 +84,10 @@ class Workflow:
     def fill(self, state):
         if self.submissions and state["mode"] == "production":
             if saved := self.saved_submission(state):
-                return saved
+                with self.trace.step(
+                    state["dossier"], saved["submission"], "reprise_recu_sql"
+                ):
+                    return saved
             if active := self.submissions.active(state["dossier"]):
                 return {
                     "submission": {
@@ -236,13 +248,22 @@ class Workflow:
         if not self.submissions:
             return self.transmit(state) if permitted else self.verify(state)
         fresh, row = self.submissions.begin(state)
-        attempt = {**attempt, "id": row["id"], "generation": row["generation"]}
+        attempt = {
+            **attempt,
+            "id": row["id"],
+            "generation": row["generation"],
+            "started_at": row["started_at"].isoformat(),
+        }
         state = {**state, "submission": attempt}
         if row["status"] == "no_submission":
             return row["outcome"]
         if not fresh or not (permitted or attempt.get("sql_guarded")):
-            return {"submission": attempt, **self.verify(state)}
-        with self.submissions.lease(state["dossier"], attempt):
+            with self.trace.step(state["dossier"], attempt, "reprise"):
+                return {"submission": attempt, **self.verify(state)}
+        with (
+            self.submissions.lease(state["dossier"], attempt),
+            self.trace.step(state["dossier"], attempt, "transmission"),
+        ):
             result = self.transmit(state)
         return {"submission": attempt, **result}
 
@@ -289,6 +310,7 @@ class Workflow:
                     **state["submission"],
                     "id": row["id"],
                     "generation": row["generation"],
+                    "started_at": row["started_at"].isoformat(),
                 },
             }
         observed = self.now()
@@ -311,12 +333,14 @@ class Workflow:
             "next_node": "draft",
         }
 
-        if self.submissions and not self.submissions.finish(
-            state, evidence=update["evidence"], reconciled=reconciled
-        ):
-            return self.saved_submission(state) or self.wait_for(
-                "uncertain", text="Dépôt à vérifier sur le portail."
-            )
+        if self.submissions:
+            with self.trace.step(state["dossier"], state["submission"], "recu_sql"):
+                if not self.submissions.finish(
+                    state, evidence=update["evidence"], reconciled=reconciled
+                ):
+                    return self.saved_submission(state) or self.wait_for(
+                        "uncertain", text="Dépôt à vérifier sur le portail."
+                    )
         return update
 
     @staticmethod

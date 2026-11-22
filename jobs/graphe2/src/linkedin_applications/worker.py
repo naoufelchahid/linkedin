@@ -223,6 +223,7 @@ def services(queue, env):
             documents=documents,
         ),
         Mail(env),
+        trace_port=env.get("APPLICATIONS_TRACE_LOCAL_PORT"),
     ), Telegram(env["APPLICATIONS_TELEGRAM_TOKEN"], env["APPLICATIONS_TELEGRAM_CHAT"])
 
 
