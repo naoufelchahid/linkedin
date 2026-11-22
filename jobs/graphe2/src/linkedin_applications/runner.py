@@ -27,7 +27,7 @@ class Runner:
             browser,
             writer,
             mail,
-            Memory(queue.data),
+            Memory(queue.data, getattr(queue, "candidate_answers", None)),
             self.count,
             now,
             trace_port=trace_port,
@@ -60,6 +60,15 @@ class Runner:
         cfg = config(item["dossier"])
         snap = self.graph.get_state(cfg)
         current = snap.values
+        question = current.get("question") or {}
+        ledger = getattr(self.queue, "candidate_answers", None)
+        if (
+            ledger
+            and reply
+            and question.get("kind") == "question"
+            and reply.get("id") == question["id"]
+        ):
+            reply = ledger.reply(question["id"])
         if not current:
             cv = Path(item["cv"])
             if fingerprint(cv) != item["cv_hash"]:

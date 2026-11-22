@@ -111,8 +111,8 @@ ACTIONS = {
     "recipe_mail": [("approve", "Valider l’aperçu"), ("hold", "Fermer l’aperçu")],
 }
 RESPONSE_ACTIONS = [
-    ("remember", "Envoyer et garder en mémoire"),
-    ("once", "Envoyer sans garder en mémoire"),
+    ("once", "Cette soumission uniquement"),
+    ("remember", "Toutes mes futures soumissions"),
 ]
 
 

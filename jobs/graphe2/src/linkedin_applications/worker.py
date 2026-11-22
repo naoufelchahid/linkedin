@@ -25,6 +25,7 @@ from .writer import Writer
 class Worker:
     def __init__(self, queue, runner, telegram):
         self.queue, self.runner, self.telegram = queue, runner, telegram
+        self.answers = getattr(queue, "candidate_answers", None)
         self.recheck_at = 0
         self.path = queue.data / "telegram.json"
         self.telegram_state = (
@@ -49,11 +50,13 @@ class Worker:
 
     def notify(self, pending):
         for ident, dossier in pending.items():
+            q = dossier["question"]
+            if self.answers and q["kind"] == "question":
+                self.answers.open(dossier)
             if ident in self.telegram_state["prompts"]:
                 continue
-            q = dossier["question"]
             title = dossier["offer"]["title"]
-            text = f"{title}\n{q['text']}"
+            text = f"{title} · {dossier['offer'].get('company', '')}\n{q['text']}"
             if q["kind"] == "question":
                 msg = self.telegram.text(text, reply_markup={"force_reply": True})
             else:
@@ -82,6 +85,7 @@ class Worker:
                 msg = callback.get("message", {})
                 actor = callback.get("from", {}).get("id")
                 ident, _, choice = callback.get("data", "").partition(":")
+                ident, _, revision = ident.partition("~")
                 if (
                     msg.get("chat", {}).get("id") == actor == self.telegram.chat
                     and ident in pending
@@ -95,7 +99,18 @@ class Worker:
                         if kind == "question"
                         else prompts.get(ident)
                     )
-                    if choice in valid and expected == msg["message_id"]:
+                    if self.answers and kind == "question":
+                        if (
+                            choice in valid
+                            and revision.isascii()
+                            and revision.isdecimal()
+                            and len(revision) <= 18
+                        ):
+                            self.answers.confirm(
+                                ident, int(revision), msg["message_id"], choice
+                            )
+                            self.resume_answer(ident, pending)
+                    elif choice in valid and expected == msg["message_id"]:
                         result = self.runner.run(
                             pending[ident],
                             {
@@ -125,6 +140,20 @@ class Worker:
                             and pending[ident]["question"]["kind"] == "question"
                             and msg.get("text")
                         ):
+                            if self.answers:
+                                version = self.answers.stage(
+                                    ident, msg["text"], msg["message_id"]
+                                )
+                                if version is not None:
+                                    buttons = self.telegram.buttons(
+                                        msg["text"],
+                                        f"{ident}~{version}",
+                                        RESPONSE_ACTIONS,
+                                    )
+                                    self.answers.bind_buttons(
+                                        version, buttons["message_id"]
+                                    )
+                                break
                             approval = self.telegram.buttons(
                                 msg["text"], ident, RESPONSE_ACTIONS
                             )
@@ -136,8 +165,22 @@ class Worker:
             self.telegram_state["offset"] = update["update_id"] + 1
             self.save()
 
+    def resume_answer(self, ident, pending):
+        reply = self.answers.reply(ident)
+        if reply:
+            result = self.runner.run(pending[ident], reply)
+            if (result.get("question") or {}).get("id") != ident:
+                pending.pop(ident)
+                self.telegram_state["prompts"].pop(ident, None)
+                self.telegram_state["staged"].pop(ident, None)
+                self.save()
+
     def tick(self):
         pending = self.pending()
+        if self.answers:
+            for ident, state in list(pending.items()):
+                if state["question"]["kind"] == "question":
+                    self.resume_answer(ident, pending)
         self.notify(pending)
         self.receive(pending)
         held = any(

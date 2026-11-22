@@ -110,7 +110,8 @@ class Queue:
 
 
 class Memory:
-    def __init__(self, data):
+    def __init__(self, data, candidate_answers=None):
+        self.candidate_answers = candidate_answers
         self.path = Path(data) / "reponses.md"
 
     def entries(self):
@@ -124,16 +125,24 @@ class Memory:
 
     def read(self, state):
         offer = state["offer"]
-        return [
+        sql = self.candidate_answers.read(state) if self.candidate_answers else []
+        return sql + [
             item
             for item in self.entries()
             if item["kind"] == "registration"
-            or item["dossier"] == state["dossier"]
-            or item["scope"] == "global"
-            or item["scope"] == f"company:{offer.get('company')}"
+            or (
+                not self.candidate_answers
+                and (
+                    item["dossier"] == state["dossier"]
+                    or item["scope"] == "global"
+                    or item["scope"] == f"company:{offer.get('company')}"
+                )
+            )
         ]
 
     def save(self, state, question, response):
+        if self.candidate_answers and question["kind"] == "question":
+            return
         items = self.entries()
         if any(item["id"] == question["id"] for item in items):
             return

@@ -2,8 +2,7 @@
 # Ouvre des lots synthétiques dans une base et un réseau Docker éphémères.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
-image=linkedin-applications:recette-08
-docker build -q -t "$image" "$root/jobs/graphe2" >/dev/null
+image=$(docker build -q -t linkedin-applications:recette-08 "$root/jobs/graphe2")
 network=$(docker network create --internal "lots-recette-$$")
 pg=""
 cleanup() {
@@ -66,3 +65,4 @@ echo "Trois lots, deux dossiers, versions A et B et CV relus depuis le worker is
 "${cli[@]}" --entrypoint python -v "$root/db/tests/dossier_uploads.py:/recette.py:ro" "$image" /recette.py
 "${cli[@]}" --entrypoint python -v "$root/db/tests/submission_recovery.py:/recette.py:ro" "$image" /recette.py
 "${cli[@]}" --entrypoint python -v "$root/db/tests/attempt_trace.py:/recette.py:ro" "$image" /recette.py
+"${cli[@]}" --entrypoint python -v "$root/db/tests/telegram_answers.py:/recette.py:ro" "$image" /recette.py

@@ -99,6 +99,12 @@ jobs/graphe2/.venv/bin/python jobs/graphe2/tests/recette_mandat/run.py \
 
 La recette vérifie le fait obligatoire manquant sans réception, puis le reçu d’un dossier complet et l’issue incertaine d’un autre dépôt après validation. Chaque formulaire comporte un cadre, des champs obligatoires et un choix révélant un champ supplémentaire. Le transport de recette remplace Browsentic pendant ces trois tours. Les permissions de l’extension restent couvertes séparément par la recette du worker.
 
+### Réponses Telegram en PostgreSQL
+
+Avant de notifier le candidat, le worker rattache la question et son contexte à la version d’offre du dossier dans `applications.candidate_questions`. Chaque valeur ou correction devient une version de `applications.candidate_answers` avec le message source et sa date. Les boutons « Cette soumission uniquement » et « Toutes mes futures soumissions » désignent la version précise affichée. Le clic confirme uniquement la dernière version et fixe sa portée en transaction. Le worker retrouve une réponse confirmée après interruption, même si le checkpoint attend encore.
+
+Les réponses globales sont lues dans le même mode pour le même candidat, avec leur contexte de question. Les réponses limitées au dossier ont priorité pour ce dossier. `applications.attempt_answers` conserve les versions de réponse présentées au tour natif. Un reçu permet de les retrouver via son `attempt_id`. La recette `db/tests/application_lots.sh` injecte des messages synthétiques dans un adaptateur Telegram en mémoire.
+
 ### Comptes du candidat
 
 En mode PostgreSQL, la commande interactive `linkedin-applications --state <état> confirm-address --mode recipe` demande deux saisies de l’adresse principale. La confirmation est propre au candidat et au mode. Un changement d’adresse suspend la réutilisation des comptes associés à l’ancienne adresse.
