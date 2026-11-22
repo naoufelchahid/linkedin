@@ -69,3 +69,10 @@ echo 'Rejeu PostgreSQL, transactions et droits vérifiés.'
 TEST_CV_POSTGRES_DSN="dbname=$PGDATABASE" "$python" -m pytest -q \
     "$root/jobs/graphe1/tests/test_discovery.py::test_two_cycle_documents_postgres" \
     "$root/jobs/graphe1/tests/test_discovery.py::test_postgres_qualification_review_replay"
+
+# La comparaison charge les faits de sélection dans une transaction annulée.
+unset PGOPTIONS
+"$python" "$root/db/tests/retained_contract.py"
+if [[ -n ${RESTORED_DISCOVERY_SQLITE:-} ]]; then
+    "$python" "$root/db/tests/retained_contract.py" "$RESTORED_DISCOVERY_SQLITE"
+fi

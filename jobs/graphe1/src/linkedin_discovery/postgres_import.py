@@ -6,7 +6,7 @@ from pathlib import Path
 
 import psycopg
 
-from .model import digest, dump, normalize, plain
+from .model import digest, dump, normalize, offer_url, plain
 
 
 def import_collection(connection, cycle_id, profile, dataset_json):
@@ -38,9 +38,9 @@ def insert_offer(cursor, cycle_id, profile, raw, payload, offer):
         content = dump(offer)
         version_id = digest(content)
         cursor.execute(
-            """INSERT INTO discovery.versions (id, offer_key, content)
-               VALUES (%s, %s, %s::jsonb) ON CONFLICT (id) DO NOTHING""",
-            (version_id, offer["key"], content),
+            """INSERT INTO discovery.versions (id, offer_key, content, canonical_url)
+               VALUES (%s, %s, %s::jsonb, %s) ON CONFLICT (id) DO NOTHING""",
+            (version_id, offer["key"], content, offer_url(offer.get("url")) or None),
         )
     contract = raw.get("contractType") or raw.get("employmentType") or raw.get("jobType")
     cursor.execute(
