@@ -40,7 +40,8 @@ def metrics(db, params):
     attention = db.execute(
         scope
         + """SELECT offer_id,title,state,state_since FROM scoped
-        WHERE verdict='retenir' AND state IN ('en attente','bloquée','dépôt à vérifier')
+        WHERE verdict='retenir' AND state IN ('en attente','bloquée','dépôt à vérifier',
+            'reprise suspendue','confirmation en attente','réponse en attente','suivi à approuver','suivi à vérifier')
         ORDER BY state_since,identity LIMIT 8""",
         values,
     ).fetchall()

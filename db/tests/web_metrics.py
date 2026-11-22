@@ -1,17 +1,21 @@
 """Comparaison des agrégats SQL, des listes et de la fiche avec le même périmètre."""
 
+import json
 import os
 import subprocess
 import sys
 import threading
+import time
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+from urllib.request import urlopen
 
 import psycopg
 from linkedin_discovery.dashboard import app
 from starlette.testclient import TestClient
+from websockets.sync.client import connect
 
 
 class Counters(HTMLParser):
@@ -40,36 +44,79 @@ def check_counts(client, params, expected):
     return response.text
 
 
-def mobile(client, work):
-    # Le navigateur parcourt les véritables réponses ASGI avec un serveur loopback jetable.
-    harness = """<meta name="viewport" content="width=device-width,initial-scale=1">
-        <iframe style="border:0;width:100%;height:700px" src="/dashboard?cycle=A"></iframe>
-        <script>
-        const f=document.querySelector('iframe');let step=0,listing;
-        f.onload=()=>{
-            const d=f.contentDocument;
-            if(step===0){
-                const a=d.querySelectorAll('.pie svg a')[0];a.focus();
-                if(d.activeElement!==a || d.documentElement.scrollWidth>f.clientWidth)return;
-                step++; a.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:f.contentWindow}));
-            }else if(step===1){
-                listing=f.contentWindow.location.href;
-                const a=d.querySelector('#rows tbody a');if(!a||!listing.includes('cycle=A'))return;
-                step++; a.click();
-            }else if(step===2){
-                const a=d.querySelector('a.return');if(!a)return;step++;a.click();
-            }else if(step===3 && f.contentWindow.location.href===listing)
-                document.documentElement.dataset.metrics='ok';
-        }</script>"""
+def keyboard_journey(socket):
+    # CDP envoie les touches natives. Les expressions DOM ne font que lire la page
+    # et le focus ; le navigateur gère les changements de focus et la navigation.
+    sequence = 0
 
+    def command(method, **params):
+        nonlocal sequence
+        sequence += 1
+        socket.send(json.dumps({"id": sequence, "method": method, "params": params}))
+        while True:
+            response = json.loads(socket.recv(timeout=5))
+            if response.get("id") == sequence:
+                assert "error" not in response, response.get("error")
+                return response["result"]
+
+    def read(expression):
+        return command("Runtime.evaluate", expression=expression, returnByValue=True)[
+            "result"
+        ].get("value")
+
+    def key(name, code):
+        for event in ("rawKeyDown", "keyUp"):
+            command(
+                "Input.dispatchKeyEvent",
+                type=event,
+                key=name,
+                code=name,
+                windowsVirtualKeyCode=code,
+            )
+
+    def wait_for(expression):
+        deadline = time.monotonic() + 12
+        while not read(expression):
+            assert time.monotonic() < deadline, expression
+            time.sleep(0.05)
+
+    def follow(selector):
+        wait_for(
+            "document.readyState==='complete' && !!document.querySelector("
+            + json.dumps(selector)
+            + ")"
+        )
+        for _ in range(120):
+            if read("document.activeElement.matches(" + json.dumps(selector) + ")"):
+                break
+            key("Tab", 9)
+        else:
+            raise AssertionError("Lien inaccessible au clavier : " + selector)
+        previous = read("location.href")
+        key("Enter", 13)
+        wait_for(
+            "location.href!=="
+            + json.dumps(previous)
+            + " && document.readyState==='complete'"
+        )
+
+    wait_for("document.readyState==='complete' && !!document.querySelector('.pie')")
+    assert read("innerWidth<=500 && document.documentElement.scrollWidth<=innerWidth")
+    follow(".pie svg a")
+    listing = read("location.href")
+    assert "cycle=A" in listing and "verdict=" in listing
+    follow("#rows tbody a")
+    follow("a.return")
+    assert read("location.href") == listing
+
+
+def mobile(client, work):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
 
         def do_GET(self):
-            if self.path == "/recette":
-                payload, code, mime = harness.encode(), 200, "text/html; charset=utf-8"
-            elif self.path.startswith("/dashboard"):
+            if self.path.startswith("/dashboard"):
                 page = client.get(self.path)
                 payload, code, mime = (
                     page.content,
@@ -87,7 +134,9 @@ def mobile(client, work):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            dom = subprocess.check_output(
+            base = f"http://127.0.0.1:{server.server_port}"
+            profile = work / "metrics-profile"
+            with subprocess.Popen(
                 [
                     os.environ.get("CHROME", "google-chrome"),
                     "--headless",
@@ -95,16 +144,36 @@ def mobile(client, work):
                     "--disable-gpu",
                     "--disable-background-networking",
                     "--disable-dev-shm-usage",
-                    f"--user-data-dir={work / 'metrics-profile'}",
+                    "--remote-debugging-address=127.0.0.1",
+                    "--remote-debugging-port=0",
+                    f"--user-data-dir={profile}",
                     "--window-size=390,844",
-                    "--virtual-time-budget=10000",
-                    "--dump-dom",
-                    f"http://127.0.0.1:{server.server_port}/recette",
+                    base + "/dashboard?cycle=A",
                 ],
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=40,
-            )
-            assert b'data-metrics="ok"' in dom
+            ) as browser:
+                try:
+                    deadline = time.monotonic() + 30
+                    port_file = profile / "DevToolsActivePort"
+                    while not port_file.exists():
+                        assert browser.poll() is None and time.monotonic() < deadline
+                        time.sleep(0.05)
+                    port = int(port_file.read_text().splitlines()[0])
+                    with urlopen(
+                        f"http://127.0.0.1:{port}/json/list", timeout=5
+                    ) as events:
+                        tab = next(
+                            t
+                            for t in json.load(events)
+                            if t["type"] == "page" and t["url"].startswith(base)
+                        )
+                    with connect(
+                        tab["webSocketDebuggerUrl"], open_timeout=5, close_timeout=2
+                    ) as socket:
+                        keyboard_journey(socket)
+                finally:
+                    browser.terminate()
         finally:
             server.shutdown()
             thread.join()

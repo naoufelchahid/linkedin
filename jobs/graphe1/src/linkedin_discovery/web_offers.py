@@ -25,6 +25,13 @@ STATES = {
     for s in (
         "sans dossier",
         "dossier ouvert",
+        "reprise suspendue",
+        "confirmation en attente",
+        "réponse en attente",
+        "suivi à approuver",
+        "suivi approuvé",
+        "suivi à vérifier",
+        "suivi envoyé",
         "bloquée",
         "en attente",
         "dépôt à vérifier",
@@ -99,9 +106,7 @@ def filtered_offers(params):
     source = f"""WITH latest AS (SELECT DISTINCT ON (identity) * FROM api.offres_web_v1
                    WHERE {scope} ORDER BY identity, observed_at DESC, cycle_id DESC, version_id)
                  SELECT * FROM (SELECT latest.*, suivi.receipt_at, suivi.activity AS state_since,
-                    CASE latest.state WHEN 'dépôt confirmé' THEN 'confirmé'
-                         WHEN 'dépôt à vérifier' THEN 'à vérifier' WHEN 'bloquée' THEN 'bloqué'
-                         ELSE 'autres' END AS deposit
+                    coalesce(suivi.deposit,'autres') AS deposit
                     FROM latest LEFT JOIN api.suivi_offres_v1 suivi USING(identity)) classified
                  WHERE {where}"""
     return source, scope_values + values

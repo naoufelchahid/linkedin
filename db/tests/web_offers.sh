@@ -29,3 +29,5 @@ echo 'Fiche, chronologie, reçu et retour à la page filtrée vérifiés.'
 echo 'Liste web vérifiée sur PostgreSQL, desktop et mobile.'
 PYTHONPATH="$root/jobs/graphe1/src" "$python" "$root/db/tests/web_metrics.py" "$work"
 echo 'Indicateurs, secteurs, courbe et parcours mobile vérifiés.'
+PYTHONPATH="$root/jobs/graphe1/src:$root/jobs/graphe2/src" "$python" "$root/db/tests/web_operational_status.py" "$work"
+echo 'Six états opérationnels et leurs transitions vérifiés avec le rôle web.'

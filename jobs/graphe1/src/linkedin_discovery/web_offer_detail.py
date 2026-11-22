@@ -9,6 +9,13 @@ from starlette.responses import HTMLResponse, PlainTextResponse
 from .web_offers import PATH, STATES, VERDICTS
 
 ACTIONS = {
+    "reprise suspendue": "Rapprocher le dossier avec son checkpoint historique.",
+    "confirmation en attente": "Attendre le message de confirmation du compte.",
+    "réponse en attente": "Répondre à la question du dossier et choisir sa portée.",
+    "suivi à approuver": "Examiner la version présentée du brouillon.",
+    "suivi approuvé": "Transmettre la version approuvée du suivi.",
+    "suivi à vérifier": "Rapprocher la tentative de suivi avec son reçu.",
+    "suivi envoyé": "Consulter le suivi enregistré.",
     "sans dossier": "Consulter la qualification.",
     "dossier ouvert": "Poursuivre la préparation du dossier.",
     "dépôt à vérifier": "Vérifier le résultat sur le portail.",
@@ -17,6 +24,10 @@ ACTIONS = {
     "dépôt confirmé": "Consulter le reçu du dépôt.",
 }
 EVENTS = {
+    "reprise": "Reprise historique",
+    "compte": "Compte du portail",
+    "obstacle": "Obstacle du portail",
+    "suivi": "Courriel de suivi",
     "collecte": "Collecte",
     "qualification": "Qualification",
     "revue": "Revue du candidat",
@@ -47,7 +58,8 @@ def detail(db, params, offer_id):
     if not re.fullmatch(r"[0-9a-f]{64}", offer_id):
         return missing
     row = db.execute(
-        """SELECT o.*,s.dossier_version,s.receipt_at,s.receipt_sha256,s.receipt_host,s.attempt_id,s.last_obstacle
+        """SELECT o.*,s.dossier_version,s.receipt_at,s.receipt_sha256,s.receipt_host,s.attempt_id,s.last_obstacle,s.correction_result,
+                  s.obstacle_stage,s.obstacle_at,s.obstacle_checked_at
            FROM api.offres_web_v1 o LEFT JOIN api.suivi_offres_v1 s USING(identity)
            WHERE o.offer_id=%s ORDER BY o.observed_at DESC,o.cycle_id DESC,o.version_id LIMIT 1""",
         (offer_id,),
@@ -61,8 +73,9 @@ def detail(db, params, offer_id):
     ).fetchall()
     history = db.execute(
         """SELECT * FROM api.chronologie_offres_v1 WHERE offer_id=%s
+           UNION ALL SELECT * FROM api.evenements_operationnels_v1 WHERE offer_id=%s
            ORDER BY at DESC,kind,version_id,context""",
-        (offer_id,),
+        (offer_id, offer_id),
     ).fetchall()
     src = sources[0]
     back = PATH + ("?" + escape(urlencode(params)) if params else "")
@@ -87,6 +100,27 @@ def detail(db, params, offer_id):
             ("Version examinée pour le dossier", row["dossier_version"] or "Aucun dossier"),
         ]
     )
+    if row["correction_result"]:
+        corrections = {
+            "en_attente": "En attente",
+            "non_verifie": "Non vérifiée",
+            "etat_verifie": "État vérifié",
+            "recu_verifie": "Reçu vérifié",
+        }
+        stage = row["obstacle_stage"]
+        progress += facts(
+            [
+                ("Étape du portail", "Pièce" if stage == "piece" else stage),
+                ("Obstacle observé le", stamp(row["obstacle_at"])),
+                ("Correction de l’obstacle", corrections[row["correction_result"]]),
+                (
+                    "Dernier contrôle",
+                    stamp(row["obstacle_checked_at"])
+                    if row["obstacle_checked_at"]
+                    else "À effectuer",
+                ),
+            ]
+        )
     receipt = ""
     if row["receipt_at"]:
         receipt = "<h3>Reçu de dépôt</h3>" + facts(
