@@ -16,6 +16,9 @@ BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'linkedin_applications') THEN
         CREATE ROLE linkedin_applications NOLOGIN;
     END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'linkedin_web') THEN
+        CREATE ROLE linkedin_web NOLOGIN;
+    END IF;
 END $$;
 GRANT linkedin_selection TO linkedin_applications;
 CREATE SCHEMA IF NOT EXISTS applications AUTHORIZATION linkedin_migrator;

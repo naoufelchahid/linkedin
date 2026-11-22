@@ -21,6 +21,7 @@ from .config import Config
 from .launch import Search
 from .retained import retained_rows
 from .store import Store
+from .web_offers import offers
 
 ASSETS = files("linkedin_discovery.resources")
 
@@ -119,6 +120,12 @@ def trusted(request):
         request.headers.get("origin", str(request.base_url).rstrip("/"))
         == str(request.base_url).rstrip("/")
     )
+
+
+def offer_list(request):
+    if not trusted(request):
+        return Response(status_code=403)
+    return offers(request.query_params)
 
 
 def save_favorite(payload):
@@ -229,6 +236,7 @@ app = Starlette(
         Route("/dashboard", asset),
         Route("/dashboard/assets/{asset}", asset),
         Route("/dashboard/data", data),
+        Route("/dashboard/offres", offer_list),
         Route("/dashboard/actions/{command}", action, methods=["POST"]),
     ]
 )
