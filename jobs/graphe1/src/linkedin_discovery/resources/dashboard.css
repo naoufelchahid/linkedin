@@ -535,3 +535,7 @@ button,
 
 .pages { align-items: baseline; margin-top: 1rem; }
 .pages a { color: var(--ink); }
+
+.offer-detail { overflow-wrap: anywhere; }
+.offer-detail .decision { min-width: 0; }
+.offer-detail .job-copy h2:not(:first-child) { margin-top: 1.5em; }

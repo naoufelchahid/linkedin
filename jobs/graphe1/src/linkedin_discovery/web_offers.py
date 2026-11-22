@@ -20,7 +20,17 @@ VERDICTS = {
     "en attente": "En attente de qualification",
     "erreur": "Erreur technique",
 }
-STATES = {"sans dossier": "Sans dossier", "dossier ouvert": "Dossier ouvert"}
+STATES = {
+    s: s.capitalize()
+    for s in (
+        "sans dossier",
+        "dossier ouvert",
+        "bloquée",
+        "en attente",
+        "dépôt à vérifier",
+        "dépôt confirmé",
+    )
+}
 PAGE_SIZE = 25
 PATH = "/dashboard/offres"
 
@@ -113,9 +123,8 @@ def render_offers(params, rows, total, page, pages):
     body = []
     for row in rows:
         title = label(row["title"])
-        url = row["canonical_url"] or ""
-        if url.lower().startswith(("http://", "https://")):
-            title = f'<a href="{escape(url)}">{title}</a>'
+        suffix = "?" + escape(urlencode(params)) if params else ""
+        title = f'<a href="{PATH}/{row["offer_id"]}{suffix}">{title}</a>'
         activity = row["activity"].strftime("%d/%m/%Y %H:%M")
         body.append(f"""<tr><td><strong>{title}</strong><small>{label(row["company"])}</small></td>
             <td>{label(row["location"])}<small>{label(row["contract_type"])}</small></td>
@@ -147,7 +156,7 @@ def render_offers(params, rows, total, page, pages):
       {listing}</main></html>"""
 
 
-def offers(params):
+def offers(params, offer_id=None):
     dsn = os.environ.get("DASHBOARD_POSTGRES_DSN")
     if not dsn:
         return PlainTextResponse("Connexion de lecture indisponible.", status_code=503)
@@ -156,6 +165,10 @@ def offers(params):
             db.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
             db.execute("SET LOCAL ROLE linkedin_web")
             db.execute("SET LOCAL TIME ZONE 'UTC'")
+            if offer_id is not None:
+                from .web_offer_detail import detail
+
+                return detail(db, params, offer_id)
             result = query_offers(db, params)
     except ValueError:
         return PlainTextResponse("Paramètres de recherche invalides.", status_code=400)

@@ -125,7 +125,7 @@ def trusted(request):
 def offer_list(request):
     if not trusted(request):
         return Response(status_code=403)
-    return offers(request.query_params)
+    return offers(request.query_params, request.path_params.get("offer_id"))
 
 
 def save_favorite(payload):
@@ -237,6 +237,7 @@ app = Starlette(
         Route("/dashboard/assets/{asset}", asset),
         Route("/dashboard/data", data),
         Route("/dashboard/offres", offer_list),
+        Route("/dashboard/offres/{offer_id}", offer_list),
         Route("/dashboard/actions/{command}", action, methods=["POST"]),
     ]
 )

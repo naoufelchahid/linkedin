@@ -20,4 +20,10 @@ PYTHONPATH="$root/jobs/graphe1/src" "$python" "$root/db/tests/web_offers.py" "$w
     --disable-dev-shm-usage --user-data-dir="$work/profile" --window-size=390,844 \
     --dump-dom "file://$work/mobile.html" > "$work/dom" 2>"$work/chrome.log"
 rg -q 'data-mobile="ok"' "$work/dom"
+PYTHONPATH="$root/jobs/graphe1/src" "$python" "$root/db/tests/web_offer_detail.py" "$work"
+"${CHROME:-google-chrome}" --headless --no-sandbox --disable-gpu --disable-background-networking \
+    --disable-dev-shm-usage --user-data-dir="$work/profile" --window-size=390,844 \
+    --dump-dom "file://$work/detail.html" > "$work/detail-dom" 2>"$work/detail-chrome.log"
+rg -q 'data-detail="ok"' "$work/detail-dom"
+echo 'Fiche, chronologie, reçu et retour à la page filtrée vérifiés.'
 echo 'Liste web vérifiée sur PostgreSQL, desktop et mobile.'
