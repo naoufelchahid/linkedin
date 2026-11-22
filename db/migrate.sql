@@ -46,6 +46,11 @@ SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 12) A
     \ir migrations/012_submission_mandate.sql
     INSERT INTO discovery.schema_migrations (version) VALUES (12);
 \endif
+SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 14) AS pending \gset
+\if :pending
+    \ir migrations/014_portal_accounts.sql
+    INSERT INTO discovery.schema_migrations (version) VALUES (14);
+\endif
 SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 18) AS pending \gset
 \if :pending
     \ir migrations/018_web_offers.sql

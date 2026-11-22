@@ -98,3 +98,22 @@ jobs/graphe2/.venv/bin/python jobs/graphe2/tests/recette_mandat/run.py \
 ```
 
 La recette vérifie le fait obligatoire manquant sans réception, puis le reçu d’un dossier complet et l’issue incertaine d’un autre dépôt après validation. Chaque formulaire comporte un cadre, des champs obligatoires et un choix révélant un champ supplémentaire. Le transport de recette remplace Browsentic pendant ces trois tours. Les permissions de l’extension restent couvertes séparément par la recette du worker.
+
+### Comptes du candidat
+
+En mode PostgreSQL, la commande interactive `linkedin-applications --state <état> confirm-address --mode recipe` demande deux saisies de l’adresse principale. La confirmation est propre au candidat et au mode. Un changement d’adresse suspend la réutilisation des comptes associés à l’ancienne adresse.
+
+`APPLICATIONS_ACCOUNT_KEY_FILE` désigne le fichier privé contenant les 32 octets aléatoires de la clé AES-GCM encodés en base64. Le monter en lecture seule et le sauvegarder séparément de PostgreSQL. La politique navigateur associe chaque URL HTTPS de connexion ou d’inscription à l’employeur de l’offre et à son espace. Exemple pour deux pages synthétiques du même fournisseur :
+
+```json
+{"account_pages":[
+  {"url":"https://portail.invalid/a","employer":"A","space":"employeur-a"},
+  {"url":"https://portail.invalid/b","employer":"B","space":"employeur-b"}
+]}
+```
+
+Le mandat `submission-v2` expose `fill_portal_account` quand la clé est configurée. L’outil recherche le compte du candidat pour le mode, l’origine et l’espace liés au dossier. Une création exige une décision d’inscription « Autoriser pour ce portail ». Le worker persiste le secret chiffré avant la saisie dans la page autorisée. Un rejeu retrouve le même compte. La saisie cible les champs email et password dans l’onglet actif ; le modèle reçoit l’état du compte. Les profils comportant d’autres types de champ ou une page de connexion non répertoriée requièrent une adaptation de la politique ou du connecteur.
+
+Pour #15, `applications.dossier_portal_accounts(dossier_id, account_id)` rattache le dossier à la ligne de `applications.portal_accounts`. Cette ligne conserve le fournisseur, l’espace employeur, l’adresse de connexion et l’état initial `creation_en_cours`. Les états suivants sont `confirmation_en_attente` et `actif`. Un changement d’état de compte laisse le reçu de dépôt indépendant.
+
+La recette `db/tests/portal_accounts.sh` utilise PostgreSQL 17 jetable, Chrome et deux espaces synthétiques en mémoire. Définir `CHROME` et `PLAYWRIGHT` avec l’exécutable Chrome et le module Node Playwright. Le test crée deux comptes, restaure le dump dans une deuxième base et vérifie la connexion aux deux espaces après redémarrage du gestionnaire. Une adresse manquante, un accord manquant, un espace différent et une mauvaise clé sont contrôlés. Le transport de saisie vers Chrome est un double de recette ; la preuve de saisie par le vrai MCP Browsentic figure dans la recette #3.

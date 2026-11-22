@@ -213,6 +213,12 @@ def services(queue, env):
     browser = Browsentic(
         queue.data, command, policy, policy_path=policy_path, documents=documents
     )
+    if env.get("APPLICATIONS_ACCOUNT_KEY_FILE") and documents:
+        from .accounts import PortalAccounts
+
+        browser.accounts = PortalAccounts(
+            queue, env["APPLICATIONS_ACCOUNT_KEY_FILE"], policy.get("account_pages", [])
+        )
     return Runner(
         queue,
         browser,
@@ -233,6 +239,8 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     serve = commands.add_parser("serve")
     serve.add_argument("--once", action="store_true")
+    address = commands.add_parser("confirm-address")
+    address.add_argument("--mode", choices=("recipe", "production"), required=True)
     metrics = commands.add_parser("metrics")
     metrics.add_argument("--discovery", type=Path)
     for name in ("launch", "status"):
@@ -268,13 +276,23 @@ def dispatch(args):
         from .postgres_queue import PostgresQueue
 
         queue = PostgresQueue(data, dsn, env.get("APPLICATIONS_CANDIDATE"))
+        if args.command == "confirm-address":
+            from getpass import getpass
+
+            from .accounts import confirm_address
+
+            address = getpass("Adresse principale à confirmer : ").strip()
+            if address != getpass("Confirmer l’adresse principale : ").strip():
+                raise ValueError("applications_address_mismatch")
+            confirm_address(queue, args.mode, address)
+            return 0
         if args.command == "status":
             return postgres_status(queue, args.cycle)
         if args.command == "metrics":
             print(json.dumps(postgres_metrics(queue)))
             return 0
     else:
-        if args.command != "serve" and not args.discovery:
+        if args.command != "serve" and not getattr(args, "discovery", None):
             raise ValueError("applications_discovery_required")
         if args.command == "metrics":
             print(json.dumps(application_metrics(data, args.discovery.resolve())))

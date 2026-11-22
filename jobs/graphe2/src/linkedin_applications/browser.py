@@ -75,6 +75,7 @@ class Browsentic:
         self.command = command
         self.actions = policy.get("actions", {})
         self.verifications = policy.get("verification", [])
+        self.accounts = None
         self.documents = documents
         self.policy_path = Path(policy_path) if policy_path else None
         self.files = policy.get("files", {})
@@ -434,14 +435,33 @@ class Browsentic:
             ),
         }
 
+        account_tool = {
+            "name": "fill_portal_account",
+            "description": "Renseigner le compte du candidat dans la page de connexion ou d’inscription reconnue. Retourne son état.",
+            "inputSchema": schema(tab="integer"),
+        }
+        tools = [attach_tool]
+        if self.accounts:
+            tools.append(account_tool)
+
         async def attach(name, args):
             try:
-                if verify or name != attach_tool["name"]:
+                if verify or name not in {tool["name"] for tool in tools}:
                     raise ConnectorError("browsentic_action_denied")
                 async with Session(
                     self.command, self.cwd, codex_environment()
                 ) as session:
                     await self.connect(session)
+                    if name == account_tool["name"]:
+                        status = await self.accounts.fill(
+                            self, session, state["dossier"], args["tab"], memory
+                        )
+                        return {
+                            "success": True,
+                            "contentItems": [
+                                {"type": "inputText", "text": "Compte : " + status}
+                            ],
+                        }
                     await self.attach_document(
                         session,
                         args["tab"],
@@ -482,7 +502,7 @@ class Browsentic:
             + "\nDonnées du dossier :\n"
             + json.dumps(context, ensure_ascii=False),
             AGENT_RESULT,
-            tools=[] if verify else [attach_tool],
+            tools=[] if verify else tools,
             call=None if verify else attach,
             mcp=(self.command, REVIEW_TOOLS if verify else FORM_TOOLS),
         )
