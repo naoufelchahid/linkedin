@@ -17,6 +17,7 @@ dependencies = [
   "requests==2.34.2",
   "jsonschema==4.26.0",
   "python-dotenv==1.2.4",
+  "psycopg[binary]==3.3.8",
 ]
 
 [project.scripts]
