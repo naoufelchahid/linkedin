@@ -39,3 +39,23 @@ Dans chaque cycle, la version la plus récente l’emporte, avec départage par 
 La recette `db/tests/apify_replay.sh` compare les huit colonnes à la sélection SQLite par cycle sur des cas synthétiques. Pour ajouter la comparaison historique, fournir dans `RESTORED_DISCOVERY_SQLITE` le chemin de `restored/discovery/discovery.sqlite3` issu de la restauration du #1. La recette ouvre la copie SQLite en lecture seule et annule la transaction de comparaison en PostgreSQL. Elle affiche uniquement les compteurs par cycle.
 
 Les tables `applications.submission_attempts` et `applications.submission_receipts` relient le dossier et la génération du tour aux versions de l’annonce, du CV et de la lettre. Le statut `transmitting` sans reçu impose une vérification après interruption. L’expiration du bail interdit les écritures du tour et maintient son exclusivité. Le worker peut libérer la tentative lorsque le tour se termine avant transmission. Une preuve positive relue sur le portail peut confirmer une tentative expirée. La transaction de confirmation conserve un reçu par dossier avant le checkpoint LangGraph. La recette se lance avec `db/tests/application_lots.sh`.
+
+## Répétition de migration et retour arrière
+
+Depuis la racine, fournir au lanceur le répertoire du bundle déjà restauré par #1. Le lanceur utilise l’environnement verrouillé G2 et ajoute les sources G1 à son chemin d’importation. Il crée un PostgreSQL privé sans interface réseau, avec un socket dans un répertoire temporaire. Les fichiers de la référence et de la copie sont ouverts en lecture seule.
+
+```bash
+export PLAYWRIGHT=/chemin/vers/node_modules/playwright
+export CHROME=/chemin/vers/chrome
+export THUNDERBIRD=/chemin/vers/thunderbird
+export THUNDERBIRD_MCP_REPO=/chemin/vers/thunderbird-mcp
+db/tests/migration_rehearsal.sh /chemin/vers/bundle-ticket-01
+```
+
+L’import transactionnel préserve en SQL les faits de découverte et la sélection par cycle. Le document partagé contient les octets du CV original et le Markdown dérivé. Les cycles gardent chacun le texte historique utilisé pour leur qualification. Les pièces du bundle et les anciennes bases sont aussi archivées dans une table privée pour reconstruire la copie à l’octet près.
+
+Chaque dossier importé possède sa version, ses pièces et un lien vers le thread ancien. Les lots de recette et de production ont des identités distinctes. Des checkpoints anciens utilisent le même thread pour ces deux modes. L’historique conserve les questions, les réponses et leurs restrictions, les opérations et leurs preuves. Les anciens identifiants Telegram, les décisions de portée manquantes et les résultats d’opérations incertains restent tels quels. Les lignes dans `applications.legacy_holds` écartent les dossiers hérités de la file exécutable pendant le rapprochement individuel. Une reprise opérationnelle de ces dossiers requiert un état et une décision de reprise explicites.
+
+Lors de la répétition du 22 novembre 2026, la copie a livré 224 versions, 640 observations Apify, six rapports, 244 tentatives de qualification et un accord global. La file comportait deux lots, douze associations aux lots, dix états de dossier, quatorze questions, neuf réponses, une réponse mémorisée, vingt-quatre tentatives historiques et zéro reçu de dépôt. Les dix derniers états comptaient cinq attentes, trois préparations et deux blocages. Les 130 checkpoints et les quatre PDF figuraient dans les 25 fichiers dont les empreintes sont vérifiées à l’aller et au retour.
+
+Un dossier synthétique distinct traverse le graphe depuis son lot SQL dans un espace réseau limité au loopback. Une approbation de recette autorise le compte, le pilote Chrome utilise le code du message synthétique de Thunderbird, puis le worker reprend le formulaire. Le portail HTTP de recette vérifie les octets exacts du CV et conserve sa preuve avant l’interruption injectée. Un second Runner retrouve le reçu. Le collecteur local vérifie les champs des traces et l’absence des témoins privés. Le rollback reconstruit d’abord la référence ; le dossier et son nouveau reçu sont ensuite reportés dans la copie SQLite. Le worker de la révision antérieure vérifie son statut déjà soumis. Le parcours utilise des adaptateurs synthétiques pour le portail et le geste de dépôt.

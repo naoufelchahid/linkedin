@@ -153,7 +153,8 @@ class PostgresQueue:
                    JOIN documents.cv_versions cv ON cv.sha256=d.cv_sha256
                    JOIN LATERAL (SELECT lot_id, position FROM applications.lot_dossiers
                      WHERE dossier_id=d.id ORDER BY lot_id,position LIMIT 1) first_lot ON true
-                   WHERE d.candidate=%s ORDER BY first_lot.lot_id,first_lot.position,d.id""",
+                   WHERE d.candidate=%s AND NOT EXISTS (SELECT FROM applications.legacy_holds h WHERE h.dossier_id=d.id)
+                   ORDER BY first_lot.lot_id,first_lot.position,d.id""",
                 (self.candidate,),
             )
             return [
