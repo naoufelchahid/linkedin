@@ -67,6 +67,7 @@ AGENT_RESULT["properties"]["kind"]["enum"] = [
     "letter",
     "registration",
     "challenge",
+    "account_confirmation",
 ]
 
 
@@ -81,6 +82,7 @@ class Browsentic:
         self.command = command
         self.actions = policy.get("actions", {})
         self.verifications = policy.get("verification", [])
+        self.confirmations = None
         self.accounts = None
         self.documents = documents
         self.policy_path = Path(policy_path) if policy_path else None

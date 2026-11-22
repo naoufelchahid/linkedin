@@ -111,6 +111,13 @@ class Runner:
             if reply and reply["id"] == question["id"]:
                 return self.graph.invoke(Command(resume=reply), cfg, durability="sync")
             return current
+        if current.get("status") == "waiting_account_confirmation" and not snap.next:
+            confirmations = getattr(self.workflow.browser, "confirmations", None)
+            if confirmations and confirmations.poll(current["dossier"]):
+                return self.graph.invoke(
+                    {"status": "preparing", "next_node": "fill"}, cfg, durability="sync"
+                )
+            return current
         if current.get("status") == "version_conflict" and not snap.next:
             return self.graph.invoke({"next_node": "fill"}, cfg, durability="sync")
         if snap.next:

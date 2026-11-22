@@ -14,7 +14,7 @@ from pathlib import Path
 from run import worker
 
 
-def prepare(profile, xpi, nonce):
+def prepare(profile, xpi, nonce, *, fixtures=None):
     extensions = profile / "extensions"
     extensions.mkdir(parents=True)
     shutil.copyfile(xpi, extensions / "thunderbird-mcp@tkasperczyk.dev.xpi")
@@ -47,17 +47,22 @@ def prepare(profile, xpi, nonce):
                 }
             ),
         )
-        addon.writestr("fixture.eml", fixture)
+        entries = fixtures if fixtures is not None else [fixture]
+        for index, data in enumerate(entries):
+            addon.writestr(f"message-{index}.eml", data)
         addon.writestr(
             "seed.js",
             """
             (async () => {
                 const [local] = await browser.accounts.list();
                 const dest = await browser.folders.create(local.rootFolder, "Recette");
-                const blob = await (await fetch(browser.runtime.getURL("fixture.eml"))).blob();
-                await browser.messages.import(new File([blob], "fixture.eml"), dest);
+                for (let i = 0; i < MESSAGE_COUNT; i++) {
+                    const name = "message-" + i + ".eml";
+                    const blob = await (await fetch(browser.runtime.getURL(name))).blob();
+                    await browser.messages.import(new File([blob], name), dest);
+                }
             })().catch(e => console.error("FIXTURE", e));
-        """,
+        """.replace("MESSAGE_COUNT", str(len(entries))),
         )
     prefs = {
         "extensions.autoDisableScopes": 0,

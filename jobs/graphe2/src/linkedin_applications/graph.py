@@ -123,6 +123,22 @@ class Workflow:
                 "planned_action": action,
                 "next_node": "prepare_submission",
             }
+        if kind == "account_confirmation":
+            confirmations = getattr(self.browser, "confirmations", None)
+            if confirmations and confirmations.begin(
+                state["dossier"], tab.get("browser_tab")
+            ):
+                return {
+                    **tab,
+                    "status": "waiting_account_confirmation",
+                    "next_node": END,
+                }
+            return {
+                **tab,
+                "status": "blocked",
+                "reason": "account_confirmation_unavailable",
+                "next_node": END,
+            }
         if kind == "letter" and not state.get("letter"):
             return {**tab, "next_node": "letter"}
         if kind in {"question", "challenge", "registration"}:

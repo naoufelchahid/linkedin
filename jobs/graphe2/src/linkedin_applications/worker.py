@@ -262,6 +262,19 @@ def services(queue, env):
         browser.accounts = PortalAccounts(
             queue, env["APPLICATIONS_ACCOUNT_KEY_FILE"], policy.get("account_pages", [])
         )
+    if documents and env.get("APPLICATIONS_THUNDERBIRD_COMMAND"):
+        from .confirmations import EmailConfirmations
+
+        thunderbird = json.loads(env["APPLICATIONS_THUNDERBIRD_COMMAND"])
+        if (
+            not isinstance(thunderbird, list)
+            or not thunderbird
+            or not all(isinstance(arg, str) for arg in thunderbird)
+        ):
+            raise ValueError("applications_thunderbird_command_invalid")
+        browser.confirmations = EmailConfirmations(
+            queue, browser, thunderbird, policy.get("email_confirmations", [])
+        )
     return Runner(
         queue,
         browser,

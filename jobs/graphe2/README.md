@@ -124,6 +124,16 @@ Pour #15, `applications.dossier_portal_accounts(dossier_id, account_id)` rattach
 
 La recette `db/tests/portal_accounts.sh` utilise PostgreSQL 17 jetable, Chrome et deux espaces synthétiques en mémoire. Définir `CHROME` et `PLAYWRIGHT` avec l’exécutable Chrome et le module Node Playwright. Le test crée deux comptes, restaure le dump dans une deuxième base et vérifie la connexion aux deux espaces après redémarrage du gestionnaire. Une adresse manquante, un accord manquant, un espace différent et une mauvaise clé sont contrôlés. Le transport de saisie vers Chrome est un double de recette ; la preuve de saisie par le vrai MCP Browsentic figure dans la recette #3.
 
+### Confirmation du compte par Thunderbird
+
+Le résultat de formulaire `account_confirmation` réunit l’onglet et le dossier. Le worker persiste l’attente dans `applications.email_challenges` avant de libérer le dossier. Après redémarrage il reprend le formulaire une fois l’attente résolue. Un compte actif et un reçu de dépôt sont deux événements distincts.
+
+Configurer `APPLICATIONS_THUNDERBIRD_COMMAND` avec la commande stdio du bridge MCP. La politique navigateur accepte une entrée `email_confirmations` par espace employeur. Ses champs sont `provider`, `space`, `folder` (URI exacte Thunderbird), `sender`, `subject`, `confirmed_url` et `confirmed_text`. L’objet doit distinguer l’espace employeur dans ce dossier de messagerie. Le worker vérifie le destinataire et la date, puis l’URL, le marqueur et l’adresse connectée dans l’onglet enregistré. Une recherche ambiguë, une panne ou une confirmation encore à effectuer laisse l’attente ouverte. Le rapprochement SQL conserve l’empreinte de l’identifiant du message.
+
+Pour les portails à code ou lien, le connecteur livré observe l’état obtenu après le geste de confirmation. La saisie du témoin dans Chrome est exercée par le pilote isolé de recette. La saisie automatique d’un code de boîte réelle et la livraison IMAP restent à qualifier. Le worker consulte uniquement les en-têtes nécessaires pour son rapprochement.
+
+`db/tests/email_confirmations.sh` démarre PostgreSQL éphémère et Thunderbird hors ligne avec deux messages synthétiques. Fournir `THUNDERBIRD`, `THUNDERBIRD_MCP_REPO` (extension et bridge construits), `PLAYWRIGHT` (module Node) et `CHROME`. Le test vérifie l’ordre inversé, la panne Thunderbird pendant qu’un troisième dossier avance, le retour sur chacun des deux formulaires après redémarrage et l’absence de reçu de candidature. L’espace réseau du test contient uniquement le loopback.
+
 ### Diagnostic des obstacles du portail
 
 Le mandat archive un signal structuré par tour. La matrice `applications.portal_obstacles` relie la tentative au domaine du portail, à l’étape, à une observation de vocabulaire fermé, à la cause et à la présence d’un geste de transmission. Les contrôles de reprise enregistrent la date et le résultat du correctif. Les observations normalisées évitent de copier un champ, une URL avec paramètres ou le détail libre du portail.
