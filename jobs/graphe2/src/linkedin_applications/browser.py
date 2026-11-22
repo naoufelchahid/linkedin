@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from hashlib import sha256
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -69,6 +70,12 @@ AGENT_RESULT["properties"]["kind"]["enum"] = [
     "challenge",
     "account_confirmation",
 ]
+
+
+class DocumentVerificationError(ConnectorError):
+    def __init__(self, piece, reason):
+        super().__init__(f"browsentic_{piece}_{reason}")
+        self.piece = piece
 
 
 class Browsentic:
@@ -184,28 +191,26 @@ class Browsentic:
         else:
             path = Path(state[piece]) if state.get(piece) else None
         if path is None or not path.is_file():
-            raise ConnectorError(f"browsentic_{piece}_missing")
+            raise DocumentVerificationError(piece, "missing")
         if not digest or digest != fingerprint(path):
-            raise ConnectorError(f"browsentic_{piece}_integrity")
+            raise DocumentVerificationError(piece, "integrity")
         files = self.files
         if self.policy_path is not None:
             try:
                 files = json.loads(self.policy_path.read_text()).get("files", {})
             except (OSError, ValueError):
-                raise ConnectorError(
-                    f"browsentic_{piece}_registry_unavailable"
-                ) from None
+                raise DocumentVerificationError(piece, "registry_unavailable") from None
         entry = files.get(digest)
         if isinstance(entry, str):
             entry = {"fileId": entry}
         if not isinstance(entry, dict):
-            raise ConnectorError(f"browsentic_{piece}_not_registered")
+            raise DocumentVerificationError(piece, "not_registered")
         if entry.get("fileId"):
             key, tool, rows = "fileId", "page_listFiles", "files"
         elif entry.get("downloadId"):
             key, tool, rows = "downloadId", "page_listDownloads", "downloads"
         else:
-            raise ConnectorError(f"browsentic_{piece}_not_registered")
+            raise DocumentVerificationError(piece, "not_registered")
         if await self.current_url(rpc, tab) != url:
             raise ConnectorError("browsentic_destination_changed")
         inventory = self.json_result(await self.use(rpc, tool, {}))
@@ -213,12 +218,18 @@ class Browsentic:
             row.get("id") == entry[key] and row.get("size") == path.stat().st_size
             for row in inventory.get(rows, [])
         ):
-            raise ConnectorError(f"browsentic_{piece}_reference_expired")
+            raise DocumentVerificationError(piece, "reference_expired")
+        # Capacité du transport injecté, distincte du protocole MCP Browsentic.
+        # L’envoi doit réutiliser les octets épinglés, jamais résoudre l’ID à nouveau.
+        pin = getattr(rpc, "pin_attachment", None)
+        if pin is None:
+            raise DocumentVerificationError(piece, "session_bytes_unverified")
+        content, send = await pin({key: entry[key]})
+        if not isinstance(content, bytes) or sha256(content).hexdigest() != digest:
+            raise DocumentVerificationError(piece, "session_bytes_mismatch")
         if await self.current_url(rpc, tab) != url:
             raise ConnectorError("browsentic_destination_changed")
-        return await self.use(
-            rpc, "page_attachFile", {key: entry[key], "target": target}
-        )
+        return await send(target, content)
 
     async def perform(self, rpc, tab, state, name, value=None, phase="prepare"):
         rule = self.actions.get(name, {})
@@ -358,6 +369,8 @@ class Browsentic:
                         result = await self.use(rpc, name, params)
                     else:
                         raise ConnectorError("browsentic_action_denied")
+                except DocumentVerificationError:
+                    raise
                 except ConnectorError as exc:
                     return {
                         "success": False,
@@ -425,12 +438,27 @@ class Browsentic:
             return {**result, "browser_tab": tab, "action": {"id": result["action_id"]}}
 
     def fill(self, state, memory):
-        return asyncio.run(self.fill_async(state, memory))
+        try:
+            return asyncio.run(self.fill_async(state, memory))
+        except DocumentVerificationError as error:
+            return {"kind": "challenge", "text": str(error), "scope": "dossier"}
 
     def run_form(self, state, memory):
         if state["mode"] != "production":
             raise ConnectorError("browsentic_direct_mode_invalid")
-        return asyncio.run(self.agent_form(state, memory))
+        try:
+            return asyncio.run(self.agent_form(state, memory))
+        except DocumentVerificationError as error:
+            # Le tour direct pouvait avoir agi avant de demander la pièce.
+            # Réconcilier la tentative avant d’autoriser une nouvelle transmission.
+            return {
+                "kind": "unknown",
+                "signal": "piece_incomplete",
+                "stage": "piece",
+                "piece": error.piece,
+                "text": str(error),
+                "transmission_attempted": False,
+            }
 
     async def agent_form(self, state, memory, verify=False):
         # App Server appelle directement le MCP. Le graphe lit le résultat du tour.
@@ -478,6 +506,8 @@ class Browsentic:
                         args["piece"],
                         {"selector": args["selector"]},
                     )
+            except DocumentVerificationError:
+                raise
             except ConnectorError as error:
                 return {
                     "success": False,

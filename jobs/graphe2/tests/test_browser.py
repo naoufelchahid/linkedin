@@ -150,3 +150,32 @@ def test_obstacle_check_reads_same_tab_and_page_before_resume(tmp_path, monkeypa
     assert browser.codex.turn.await_count == 2
     for call in browser.codex.turn.await_args_list:
         assert set(call.kwargs["mcp"][1]) == {"page_getPageInfo", "page_extractText"}
+
+
+def test_unproven_letter_ends_the_turn_and_identifies_the_piece(tmp_path):
+    from linkedin_applications.browser import DocumentVerificationError
+    from linkedin_applications.obstacles import describe
+
+    browser = Browsentic(tmp_path, [], {})
+    state = {
+        "dossier": "synthetic",
+        "mode": "production",
+        "offer": {"url": "https://example.invalid"},
+    }
+
+    async def unavailable(*args):
+        raise DocumentVerificationError("letter", "session_bytes_unverified")
+
+    browser.fill_async = unavailable
+    assert browser.fill(state, []) == {
+        "kind": "challenge",
+        "text": "browsentic_letter_session_bytes_unverified",
+        "scope": "dossier",
+    }
+    browser.agent_form = unavailable
+    result = browser.run_form(state, [])
+    diagnostic = describe(result, state)
+    assert result["kind"] == "unknown"
+    assert diagnostic["cause"] == "piece_incomplete"
+    assert "lettre" in diagnostic["observation"]
+    assert diagnostic["transmission_attempted"]

@@ -72,6 +72,9 @@ def describe(result, state):
     if host and not re.fullmatch(r"[a-z0-9.-]{1,253}", host):
         host = None
     cause, observation, condition = SIGNALS[signal]
+    if signal == "piece_incomplete" and result.get("piece") in ("cv", "letter"):
+        role = "CV" if result["piece"] == "cv" else "lettre"
+        observation = f"Pièce {role} suspendue : octets de la session non vérifiés."
     return {
         "signal": signal,
         "stage": stage,

@@ -51,7 +51,7 @@ def check(root, base, received):
             self.files = files
 
         async def request(self, method, params):
-            name, args = params["name"], params["arguments"]
+            name = params["name"]
             if name == "page_switchTab":
                 result = {"activeTabId": 1, "url": base}
             elif name in {"page_listFiles", "page_listDownloads"}:
@@ -63,12 +63,20 @@ def check(root, base, received):
                     ]
                 }
             else:
-                assert name == "page_attachFile"
-                data = self.files[args.get("fileId") or args["downloadId"]]
-                field = args["target"]["selector"].removeprefix("#")
-                await asyncio.to_thread(post, field, data)
-                result = {"ok": True}
+                raise AssertionError(f"Appel non vérifié : {name}")
             return {"structuredContent": result}
+
+    class ByteSession(Session):
+        async def pin_attachment(self, reference):
+            key = next(iter(reference.values()))
+            data = self.files[key]
+
+            async def send(target, verified_bytes):
+                field = target["selector"].removeprefix("#")
+                await asyncio.to_thread(post, field, verified_bytes)
+                return {"content": [{"type": "text", "text": "ok"}]}
+
+            return data, send
 
     def attach(browser, session, role, state=item):
         asyncio.run(
@@ -87,9 +95,18 @@ def check(root, base, received):
 
     publish("cv-session-1")
     browser = Browsentic(root, [], {}, policy_path=registry)
-    attach(browser, Session({"cv-session-1": b"%PDF A"}), "cv")
+    blocked(
+        lambda: attach(browser, Session({"cv-session-1": b"%PDF A"}), "cv"),
+        "browsentic_cv_session_bytes_unverified",
+    )
+    blocked(
+        lambda: attach(browser, ByteSession({"cv-session-1": b"%PDF B"}), "cv"),
+        "browsentic_cv_session_bytes_mismatch",
+    )
+    assert not received
+    attach(browser, ByteSession({"cv-session-1": b"%PDF A"}), "cv")
     browser = Browsentic(root, [], {}, policy_path=registry)
-    session = Session(
+    session = ByteSession(
         {
             "cv-session-2": b"%PDF A",
             "wrong-cv": b"%PDF B",
