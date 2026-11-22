@@ -29,6 +29,8 @@ class Config:
     langsmith_endpoint: str = "https://api.smith.langchain.com"
     langsmith_trace_content: bool = False
 
+    postgres_dsn: str | None = field(default=None, repr=False)
+
     def __post_init__(self):
         if type(self.limit) is not int or not 1 <= self.limit <= 100:
             raise ValueError("discovery_limit_must_be_between_1_and_100")
@@ -68,6 +70,7 @@ class Config:
 
         return cls(
             root=root,
+            postgres_dsn=values.get("DISCOVERY_POSTGRES_DSN") or None,
             token=values.get("APIFY_TOKEN") or "",
             cv=path("DISCOVERY_CV"),
             data_dir=path("DISCOVERY_DATA_DIR"),

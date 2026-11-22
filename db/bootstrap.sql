@@ -12,4 +12,5 @@ BEGIN
     END IF;
 END $$;
 CREATE SCHEMA IF NOT EXISTS discovery AUTHORIZATION linkedin_migrator;
+CREATE SCHEMA IF NOT EXISTS documents AUTHORIZATION linkedin_migrator;
 COMMIT;

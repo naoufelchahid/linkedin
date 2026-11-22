@@ -11,8 +11,10 @@ from jsonschema import ValidationError
 from langchain_core.tracers.langchain import wait_for_all_tracers
 from langsmith import Client, trace, tracing_context
 
+from .adapters.pdf import read_pdf
 from .collection import attach_profile_run, start_profile_run
-from .connectors import Apify, Codex, ConnectorError, read_cv
+from .connectors import Apify, Codex, ConnectorError
+from .documents import cycle_cv
 from .graph import build_graph
 from .model import checked_result, digest, normalize
 from .prompts import qualification_prompt
@@ -23,7 +25,7 @@ from .store import Store
 class DiscoveryService:
     def __init__(self, config, *, apify=None, codex=None):
         self.config = config
-        self.store = Store(config.data)
+        self.store = Store(config.data, config.postgres_dsn)
         self.apify = apify or Apify(config.token, config.actor)
         self.codex = codex or Codex(config.data, config.codex_seconds)
         self.tracer = (
@@ -108,7 +110,7 @@ class DiscoveryService:
         return dict(status="attached", cycle_id=cycle_id, run_id=run_id)
 
     def create(self, *, cv_data=None, prompt=None, replay_of=None, search=None, ident=None):
-        cv_bytes, cv_text = cv_data if cv_data else read_cv(self.config.cv)
+        cv_bytes, cv_text = cv_data if cv_data else (read_pdf(self.config.cv), None)
         settings = dict(
             profiles=search.profiles if search else list(self.config.profiles),
             limit=search.limit if search else self.config.limit,
@@ -125,6 +127,7 @@ class DiscoveryService:
             prompt or qualification_prompt(prompt_file=self.config.prompt_file),
             settings,
             ident=ident,
+            provenance="provided" if cv_data else f"DISCOVERY_CV/{self.config.cv.name}",
         )
         if replay_of:
             # Rejeu sur les données déjà sauvegardées, sans nouvel appel Apify.
@@ -143,16 +146,24 @@ class DiscoveryService:
             raise ValueError("report_not_found")
         snapshot = json.loads(row["snapshot"])
         original = self.store.cycle(snapshot["cycle_id"])
-        content = (self.store.data / "snapshots" / (original["cv_hash"] + ".pdf")).read_bytes()
+        saved = (
+            cycle_cv(self.config.postgres_dsn, original["id"]) if self.config.postgres_dsn else None
+        )
+        if saved:
+            content, markdown = saved
+        else:
+            content = (self.store.data / "snapshots" / (original["cv_hash"] + ".pdf")).read_bytes()
+            markdown = original["cv_text"]
         if digest(content) != original["cv_hash"]:
             raise ValueError("saved_cv_integrity_failed")
         settings = json.loads(original["settings"])
         settings.update(source="replay", replay_of=original["id"], report_id=report_id)
         ident = self.store.create_cycle(
             content,
-            original["cv_text"],
+            markdown,
             prompt or qualification_prompt(prompt_file=self.config.prompt_file),
             settings,
+            provenance=f"replay/{original['id']}",
         )
         for item in snapshot["selected"]:
             self.store.ingest(ident, "review-replay", item["offer"], offer=item["offer"])

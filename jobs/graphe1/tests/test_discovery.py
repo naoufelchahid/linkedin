@@ -1,6 +1,7 @@
 """Contrats de reprise, preuve, déduplication et revue du pilote isolé."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -485,18 +486,7 @@ def test_profile_config_rejects_string_instead_of_array(tmp_path, monkeypatch):
         Config.load(tmp_path)
 
 
-def test_two_column_pdf_preserves_contiguous_experience(tmp_path):
-    """Le CV de production a révélé un entrelacement du bandeau et des missions."""
-    from linkedin_discovery.connectors import read_cv
-
-    stream = (
-        b"BT /F1 10 Tf 40 740 Td (A left column of personal notes) Tj "
-        b"0 -12 Td (that flows over several lines) Tj "
-        b"0 -12 Td (without interrupting the experience.) Tj ET "
-        b"BT /F1 10 Tf 300 740 Td (Develop workflows for OCR and) Tj "
-        b"0 -12 Td (structured document extraction.) Tj "
-        b"0 -12 Td (Use GraphRAG for search.) Tj ET"
-    )
+def make_pdf(stream):
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -516,8 +506,23 @@ def test_two_column_pdf_preserves_contiguous_experience(tmp_path):
         + str(xref).encode()
         + b"\n%%EOF\n"
     )
+    return content
+
+
+def test_two_column_pdf_preserves_contiguous_experience(tmp_path):
+    """Le CV de production a révélé un entrelacement du bandeau et des missions."""
+    from linkedin_discovery.connectors import read_cv
+
+    stream = (
+        b"BT /F1 10 Tf 40 740 Td (A left column of personal notes) Tj "
+        b"0 -12 Td (that flows over several lines) Tj "
+        b"0 -12 Td (without interrupting the experience.) Tj ET "
+        b"BT /F1 10 Tf 300 740 Td (Develop workflows for OCR and) Tj "
+        b"0 -12 Td (structured document extraction.) Tj "
+        b"0 -12 Td (Use GraphRAG for search.) Tj ET"
+    )
     path = tmp_path / "two-columns.pdf"
-    path.write_bytes(content)
+    path.write_bytes(make_pdf(stream))
     _, text = read_cv(path)
     assert "Develop workflows for OCR and structured document extraction." in " ".join(text.split())
 
@@ -583,3 +588,57 @@ def test_certain_verdict_requires_visible_evidence(field):
     offer = normalize(raw())
     with pytest.raises(ValueError, match="evidence_missing"):
         checked_result({**result(offer), field: " \n\t "}, offer, CV)
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_CV_POSTGRES_DSN"), reason="PostgreSQL isolé requis")
+def test_two_cycle_documents_postgres(tmp_path, monkeypatch):
+    import psycopg
+
+    from linkedin_discovery.documents import cycle_cv, freeze_cv
+    from linkedin_discovery.model import digest
+
+    dsn = os.environ["TEST_CV_POSTGRES_DSN"]
+    cv = tmp_path / "reference.pdf"
+    config = Config(root=tmp_path, cv=cv, postgres_dsn=dsn)
+    pilot = Pilot(config, codex=FakeCodex())
+    originals = {}
+    for label in ("2024 Atelier GraphRAG", "2025 Bureau Python"):
+        pdf = make_pdf(f"BT /F1 10 Tf 40 740 Td ({label}) Tj ET".encode())
+        cv.write_bytes(pdf)
+        cycle = pilot.create()
+        markdown = f"# Curriculum vitæ\n\n{label}"
+        originals[cycle] = pdf, markdown
+        assert pilot.store.cycle(cycle)["cv_text"] == markdown
+
+    first, second = originals
+    reference = originals[first]
+    assert cycle_cv(dsn, second) == originals[second]
+    cv.unlink()
+    (pilot.store.data / "snapshots" / (digest(reference[0]) + ".pdf")).unlink()
+    assert cycle_cv(dsn, first) == reference
+    pilot.ingest(first, "test", raw())
+    pilot.qualify({"cycle_id": first})
+    assert len(pilot.codex.calls) == 1
+    assert pilot.codex.calls[0][1] == reference[1]
+    report = pilot.report({"cycle_id": first})
+    pilot.store.close()
+    pilot = Pilot(config)
+
+    def unexpected_extraction(pdf):
+        pytest.fail("extraction répétée")
+
+    monkeypatch.setattr("linkedin_discovery.documents.extract_text", unexpected_extraction)
+    replay = pilot.replay(report["report_id"])
+    assert cycle_cv(dsn, replay) == reference
+    with pytest.raises(ValueError, match="cycle_cv_changed"):
+        freeze_cv(dsn, first, originals[second][0], None, "injected")
+    assert cycle_cv(dsn, first) == reference
+    with psycopg.connect(dsn) as db:
+        row = db.execute(
+            "SELECT sha256, provenance FROM documents.cv_versions WHERE pdf = %s", (reference[0],)
+        ).fetchone()
+        assert row == (digest(reference[0]), "DISCOVERY_CV/reference.pdf")
+        assert not db.execute(
+            "SELECT has_table_privilege(current_user, 'documents.cv_versions', 'UPDATE')"
+        ).fetchone()[0]
+    pilot.store.close()

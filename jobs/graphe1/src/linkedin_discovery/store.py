@@ -10,13 +10,16 @@ from contextlib import contextmanager
 from importlib.resources import files
 from pathlib import Path
 
+from .adapters.pdf import extract_text
+from .documents import freeze_cv
 from .model import digest, dump, now, offer_url
 
 SCHEMA = files("linkedin_discovery.resources").joinpath("schema.sql").read_text(encoding="utf-8")
 
 
 class Store:
-    def __init__(self, data):
+    def __init__(self, data, postgres_dsn=None):
+        self.postgres_dsn = postgres_dsn
         self.data = Path(data)
         self.data.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.data.chmod(0o700)
@@ -70,7 +73,7 @@ class Store:
             raise ValueError("cycle_not_found")
         return dict(row)
 
-    def create_cycle(self, cv_bytes, cv_text, prompt, settings, ident=None):
+    def create_cycle(self, cv_bytes, cv_text, prompt, settings, ident=None, provenance="provided"):
         ident = ident or uuid.uuid4().hex
         cv_hash = digest(cv_bytes)
         snapshots = self.data / "snapshots"
@@ -90,10 +93,19 @@ class Store:
                     pass  # Un autre cycle a publié le même snapshot.
         if digest(cv_path.read_bytes()) != cv_hash:
             raise ValueError("saved_cv_integrity_failed")
-        self.execute(
-            "INSERT INTO cycles(id,created_at,cv_hash,cv_text,prompt_hash,prompt,settings) VALUES(?,?,?,?,?,?,?)",
-            (ident, now(), cv_hash, cv_text, digest(prompt), prompt, dump(settings)),
-        )
+        if cv_text is None and not self.postgres_dsn:
+            cv_text = extract_text(cv_bytes)
+        # Réserver l'identifiant local avant de publier son association PostgreSQL.
+        # Une panne de publication annule le cycle avant toute collecte.
+        with self.db:
+            self.db.execute(
+                """INSERT INTO cycles(id,created_at,cv_hash,cv_text,prompt_hash,prompt,settings)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (ident, now(), cv_hash, cv_text or "", digest(prompt), prompt, dump(settings)),
+            )
+            if self.postgres_dsn:
+                markdown = freeze_cv(self.postgres_dsn, ident, cv_bytes, cv_text, provenance)
+                self.db.execute("UPDATE cycles SET cv_text=? WHERE id=?", (markdown, ident))
         return ident
 
     def ingest(self, cycle_id, profile, raw, offer=None, error=""):

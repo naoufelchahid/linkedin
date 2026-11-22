@@ -23,3 +23,9 @@ jobs/graphe1/.venv/bin/python -m linkedin_discovery.postgres_import \
 Une occurrence est identifiée par cycle, recherche et empreinte SHA-256 de la représentation texte du JSONB source. Elle conserve le document JSONB complet et les six colonnes métier. Une modification du document produit une nouvelle occurrence. Un objet sans identité exploitable garde son JSON et son erreur technique. Chaque import est transactionnel. Le module reprend les règles du graphe 1 pour l’identité et la version de l’annonce.
 
 La recette `db/tests/apify_replay.sh` requiert Docker, les clients PostgreSQL et l’environnement Python installé ci-dessus. Elle crée un conteneur PostgreSQL 17 sur un port local aléatoire, rejoue les migrations et les données puis supprime le conteneur et son volume.
+
+### CV figé par cycle
+
+Sur le worker du graphe 1, définir `DISCOVERY_POSTGRES_DSN` dans sa configuration privée, par exemple `service=linkedin_discovery`. Appliquer le bootstrap et les migrations ci-dessus. Chaque création de cycle via la CLI ou Studio publie les octets du PDF confirmé, son SHA-256, son Markdown et sa provenance. Le graphe qualifie les offres avec ce Markdown. Un rejeu résout le PDF et le Markdown du cycle source dans PostgreSQL. Les cycles SQLite historiques restent lisibles depuis leurs snapshots.
+
+`discovery.cycle_cv` associe le cycle à `documents.cv_versions.sha256`. La fonction Python `linkedin_discovery.documents.cycle_cv(dsn, cycle_id)` retourne les octets PDF et le Markdown, ou `None` pour un cycle sans association. La recette ci-dessus publie deux PDF synthétiques sous le même nom, supprime la source et le premier snapshot local, puis rejoue le premier cycle.

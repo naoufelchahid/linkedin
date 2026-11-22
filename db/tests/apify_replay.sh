@@ -65,3 +65,6 @@ if replay C "$work/invalid.json" > /dev/null 2>&1; then exit 1; fi
 test "$(psql -XAtqc "SELECT count(*) FROM discovery.occurrences WHERE cycle_id='C'")" = 0
 test "$(psql -XAtqc 'SELECT count(*) FROM discovery.versions')" = 1
 echo 'Rejeu PostgreSQL, transactions et droits vérifiés.'
+
+TEST_CV_POSTGRES_DSN="dbname=$PGDATABASE" "$python" -m pytest -q \
+    "$root/jobs/graphe1/tests/test_discovery.py::test_two_cycle_documents_postgres"
