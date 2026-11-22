@@ -7,6 +7,7 @@ import os
 import sqlite3
 import tarfile
 import tempfile
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -60,12 +61,6 @@ def backup_state(store, destination):
     temporary = archive.with_suffix(".partial")
     records = []
     with store.locked(), tempfile.TemporaryDirectory() as temp:
-        snapshot_path = Path(temp) / "discovery.sqlite3"
-        snapshot = sqlite3.connect(snapshot_path)
-        try:
-            store.db.backup(snapshot)
-        finally:
-            snapshot.close()
         with tarfile.open(temporary, "w:gz") as tar:
             os.chmod(temporary, 0o600)
             for source in sorted(store.data.rglob("*")):
@@ -76,9 +71,19 @@ def backup_state(store, destination):
                     (".lock", "-wal", "-shm", "-journal")
                 ):
                     continue
-                content = (
-                    snapshot_path if relative.as_posix() == "discovery.sqlite3" else source
-                ).read_bytes()
+                if source.suffix == ".sqlite3":
+                    snapshot_path = Path(temp) / relative
+                    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+                    with (
+                        closing(
+                            sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)
+                        ) as db,
+                        closing(sqlite3.connect(snapshot_path)) as snapshot,
+                    ):
+                        db.backup(snapshot)
+                    content = snapshot_path.read_bytes()
+                else:
+                    content = source.read_bytes()
                 info = tarfile.TarInfo(relative.as_posix())
                 info.size, info.mode = len(content), 0o600
                 tar.addfile(info, io.BytesIO(content))

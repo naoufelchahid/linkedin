@@ -97,6 +97,11 @@ def data(request):
     config = Config.load()
     params = request.query_params
     output = snapshot(config, params.get("cycle", ""), params.get("offer", ""), "cycles" in params)
+    if "metrics" in params:
+        try:
+            output["applications"] = applications("metrics")
+        except (OSError, subprocess.SubprocessError, ValueError):
+            output["applications"] = None
     output["defaults"] = asdict(Search(list(config.profiles), "Morocco", "r604800", config.limit))
     output["favorites"] = {}
     favorites = config.data / "dashboard.sqlite3"
@@ -138,7 +143,7 @@ def check_cycle(ident):
         store.cycle(ident)
 
 
-def applications(command, cycle, mode="", offers=()):
+def applications(command, cycle="", mode="", offers=()):
     config = Config.load()
     root = config.root.parent / "graphe2"
     binary = os.environ.get("APPLICATIONS_CLI", str(root / ".venv/bin/linkedin-applications"))
@@ -150,9 +155,9 @@ def applications(command, cycle, mode="", offers=()):
         command,
         "--discovery",
         str(config.data),
-        "--cycle",
-        cycle,
     ]
+    if cycle:
+        args.extend(["--cycle", cycle])
     if mode:
         args.extend(["--mode", mode])
     for key in offers:

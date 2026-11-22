@@ -4,7 +4,7 @@
 
 Le tableau présente une ligne par offre retenue et donne accès à une fiche avec le descriptif complet et les données Apify. Une offre reste visible après l’envoi de sa candidature.
 
-La vue d’ensemble compte les offres retenues, celles dans le pipe et celles dont la candidature a été envoyée. Le futur graphe 2 renseignera en base les états de soumission, dont les envois confirmés, les soumissions en cours et les erreurs. Une offre en erreur reste à traiter. En attendant cette source, les indicateurs qui en dépendent sont indisponibles.
+La vue d’ensemble lit les checkpoints du graphe 2 pour les offres retenues. Une preuve de dépôt en production fait sortir l’offre du pipe et compte une seule fois entre les lots. Une recette ou une erreur laisse l’offre dans le pipe. Les erreurs de traitement, blocages et dépôts à vérifier apparaissent dans les erreurs de soumission. Les indicateurs affichent un tiret si la lecture du graphe 2 échoue.
 
 ## Lancement du graphe 1
 

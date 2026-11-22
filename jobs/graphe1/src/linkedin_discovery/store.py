@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 import sqlite3
+import tempfile
 import uuid
 from contextlib import contextmanager
 from importlib.resources import files
@@ -76,10 +77,18 @@ class Store:
         snapshots.mkdir(exist_ok=True, mode=0o700)
         cv_path = snapshots / (cv_hash + ".pdf")
         if not cv_path.exists():
-            with cv_path.open("xb") as stream:
+            with tempfile.NamedTemporaryFile(dir=snapshots) as stream:
                 stream.write(cv_bytes)
-            cv_path.chmod(0o600)
-        elif digest(cv_path.read_bytes()) != cv_hash:
+                stream.flush()
+                os.fsync(stream.fileno())
+                stream.seek(0)
+                if digest(stream.read()) != cv_hash:
+                    raise ValueError("saved_cv_integrity_failed")
+                try:
+                    os.link(stream.name, cv_path)
+                except FileExistsError:
+                    pass  # Un autre cycle a publié le même snapshot.
+        if digest(cv_path.read_bytes()) != cv_hash:
             raise ValueError("saved_cv_integrity_failed")
         self.execute(
             "INSERT INTO cycles(id,created_at,cv_hash,cv_text,prompt_hash,prompt,settings) VALUES(?,?,?,?,?,?,?)",

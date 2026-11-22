@@ -8,15 +8,17 @@ import shutil
 import subprocess
 import sys
 import time
+from hashlib import sha256
 from pathlib import Path
 from uuid import UUID
 
 from dotenv import dotenv_values
+from linkedin_discovery.retained import retained_rows
 
 from .browser import Browsentic
 from .connectors import ACTIONS, RESPONSE_ACTIONS, Mail, Telegram, private_write
 from .runner import Runner, config
-from .storage import Queue, selected
+from .storage import Queue, database, selected
 from .writer import Writer
 
 
@@ -226,6 +228,8 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     serve = commands.add_parser("serve")
     serve.add_argument("--once", action="store_true")
+    metrics = commands.add_parser("metrics")
+    metrics.add_argument("--discovery", required=True, type=Path)
     for name in ("launch", "status"):
         command = commands.add_parser(name)
         command.add_argument("--discovery", required=True, type=Path)
@@ -248,6 +252,9 @@ def main():
 
 def dispatch(args):
     data = args.state.resolve()
+    if args.command == "metrics":
+        print(json.dumps(application_metrics(data, args.discovery.resolve())))
+        return 0
     env = settings(data)
     if args.command == "status":
         return status(data, args)
@@ -308,6 +315,45 @@ def dispatch(args):
                 time.sleep(4)
         finally:
             runner.close()
+
+
+def application_metrics(data, discovery):
+    counts = {"pipe": 0, "active": 0, "submitted": 0, "errors": 0}
+    source = discovery / "discovery.sqlite3"
+    if not source.exists():
+        return counts
+    with database(source.as_uri() + "?mode=ro") as db:
+        dossiers = {
+            sha256(row["identity"].encode()).hexdigest()
+            for row in retained_rows(db, "")
+        }
+    counts["pipe"] = len(dossiers)
+    if not dossiers or not (data / "queue.sqlite3").exists():
+        return counts
+    runner = Runner(Queue(data), None, None, None)
+    try:
+        for snap in runner.snapshots():
+            state = snap.values
+            if (
+                state.get("dossier") not in dossiers
+                or state.get("mode") != "production"
+            ):
+                continue
+            if state.get("evidence"):
+                counts["submitted"] += 1
+                counts["pipe"] -= 1
+            elif (
+                state.get("status")
+                in {"blocked", "version_conflict", "submission_uncertain"}
+                or (state.get("question") or {}).get("kind") == "uncertain"
+                or any(task.error for task in snap.tasks)
+            ):
+                counts["errors"] += 1
+            elif state.get("status") != "deferred":
+                counts["active"] += 1
+    finally:
+        runner.close()
+    return counts
 
 
 def status(data, args):

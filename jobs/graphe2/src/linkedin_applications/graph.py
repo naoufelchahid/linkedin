@@ -107,7 +107,8 @@ class Workflow:
 
     def wait(self, state):
         question = state["question"]
-        answer = interrupt(question)
+        answer = dict(interrupt(question))
+        conflict = answer.pop("version_conflict", False)
         kind = question["kind"]
         if kind == "mail":
             if (
@@ -166,8 +167,8 @@ class Workflow:
         return {
             "question": None,
             "answers": answers,
-            "status": "preparing",
-            "next_node": "fill",
+            "status": "version_conflict" if conflict else "preparing",
+            "next_node": END if conflict else "fill",
         }
 
     def prepare_submission(self, state):

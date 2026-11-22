@@ -346,3 +346,59 @@ def test_recette_garde_les_outils_de_transmission_fermes(env):
     item = env.item("direct", "recipe")
     assert env.runner.run(item)["status"] == "recipe_ready"
     assert env.browser.calls == [("fill", "direct")]
+
+
+def test_conflicting_destination_keeps_reply_without_submission(env):
+    first = env.item("a")
+    env.browser.forms = [{"kind": "question", "text": "Préavis ?", "scope": "global"}]
+    question = env.runner.run(first)["question"]
+    second = {**first, "version": "v2", "offer": {"title": "a", "destination": "other"}}
+    with database(env.queue.path) as db:
+        lot = db.execute(
+            "INSERT INTO lots(cycle,mode) VALUES('second','production')"
+        ).lastrowid
+        db.execute(
+            "INSERT INTO items VALUES(?,?,?,?)", (lot, "a", 0, json.dumps(second))
+        )
+    reply = {"id": question["id"], "choice": "once", "text": "30 jours"}
+    env.runner.run(first, reply)
+    env.reopen()
+    state = env.runner.run(second, reply)
+    assert state["status"] == "version_conflict" and state["question"] is None
+    assert [answer["text"] for answer in state["answers"]] == ["30 jours"]
+    assert state["version"] == "v1" and state["cv"] == first["cv"]
+    assert env.browser.calls == [("fill", "a")]
+
+
+def test_metrics_count_confirmed_once_across_lots_and_keep_recipe_in_pipe(env):
+    from linkedin_applications.worker import application_metrics
+
+    discovery = env.queue.data / "discovery"
+    store = Store(discovery)
+    try:
+        cycle = store.create_cycle(b"CV", "CV", "prompt", {})
+        for number in range(3):
+            raw = {
+                "url": f"https://www.linkedin.com/jobs/view/{number}",
+                "title": str(number),
+            }
+            version = store.ingest(cycle, "test", raw, normalize(raw))
+            q = store.qualification(store.cycle(cycle), version)
+            store.finish_attempt(
+                q["id"], store.start_attempt(q["id"]), result={"verdict": "retenir"}
+            )
+    finally:
+        store.close()
+    items = selected(discovery, cycle)
+    submitted = env.item(items[0]["dossier"])
+    env.runner.run(submitted)
+    env.item(items[0]["dossier"])
+    env.runner.run(env.item(items[1]["dossier"], mode="recipe"))
+    env.browser.forms = [{"kind": "blocked", "text": "Formulaire fermé"}]
+    env.runner.run(env.item(items[2]["dossier"]))
+    assert application_metrics(env.queue.data, discovery) == {
+        "pipe": 2,
+        "active": 0,
+        "submitted": 1,
+        "errors": 1,
+    }

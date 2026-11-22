@@ -128,6 +128,7 @@ class Codex:
                 "command": command[0],
                 "args": command[1:],
                 "enabled_tools": list(enabled_tools),
+                "default_tools_approval_mode": "approve",
                 "enabled": True,
                 "required": True,
             }
@@ -174,10 +175,12 @@ class Codex:
             }
             if enabled != allowed:
                 raise ConnectorError("codex_unexpected_mcp")
-            if mcp and effective["mcp_servers"]["linkedin_form"].get(
-                "enabled_tools"
-            ) != list(enabled_tools):
-                raise ConnectorError("codex_mcp_tools_unexpected")
+            if mcp:
+                browser = effective["mcp_servers"]["linkedin_form"]
+                if browser.get("enabled_tools") != list(enabled_tools):
+                    raise ConnectorError("codex_mcp_tools_unexpected")
+                if browser.get("default_tools_approval_mode") != "approve":
+                    raise ConnectorError("codex_mcp_approval_unexpected")
             thread = await rpc.request(
                 "thread/start",
                 {

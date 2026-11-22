@@ -25,6 +25,8 @@ Le worker verrouille son répertoire d’état pour sérialiser la navigation et
 
 ## Navigateur en production
 
+Le processus Codex du graphe 2 préautorise les outils Browsentic exposés pour chaque tour avec `mcp_servers.linkedin_form.default_tools_approval_mode="approve"`. Le tour de vérification dispose uniquement de la liste d’outils de consultation. Le graphe contrôle la configuration effective avant d’ouvrir la session.
+
 App Server charge directement le MCP Browsentic pour le rôle navigateur. Codex identifie les champs et les boutons à l’écran, y compris dans un cadre intégré lorsque le navigateur l’expose. Il choisit les actions de saisie et fait la validation du formulaire. Le graphe vérifie le quota et enregistre la tentative avant ce tour. Un tour interrompu déclenche ensuite une vérification du dépôt en lecture seule. Le fichier de sélecteurs décrit ci-dessous sert à la recette.
 
 ## Actions Browsentic en recette

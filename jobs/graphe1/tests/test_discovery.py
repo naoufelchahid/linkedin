@@ -576,3 +576,10 @@ def test_dashboard_params_resume_and_human_selection(pilot):
     pilot.store.review(state["report_id"], 1, "écarter")
     assert snapshot(pilot.config, "", "")["offers"] == []
     assert "detail" not in snapshot(pilot.config, "", key)
+
+
+@pytest.mark.parametrize("field", ["mission_citee", "competence_cv"])
+def test_certain_verdict_requires_visible_evidence(field):
+    offer = normalize(raw())
+    with pytest.raises(ValueError, match="evidence_missing"):
+        checked_result({**result(offer), field: " \n\t "}, offer, CV)

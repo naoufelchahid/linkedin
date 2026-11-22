@@ -58,6 +58,18 @@ class Runner:
                 raise ValueError("cv_snapshot_integrity")
             return self.graph.invoke(item, cfg, durability="sync")
         if not current.get("submission") and self.destination_changed(current):
+            question = current.get("question") or {}
+            if (
+                snap.interrupts
+                and question.get("kind") == "question"
+                and reply
+                and reply["id"] == question["id"]
+            ):
+                return self.graph.invoke(
+                    Command(resume={**reply, "version_conflict": True}),
+                    cfg,
+                    durability="sync",
+                )
             return {**current, "status": "version_conflict"}
         if current["mode"] != item["mode"]:
             if (
@@ -82,6 +94,8 @@ class Runner:
             if reply and reply["id"] == question["id"]:
                 return self.graph.invoke(Command(resume=reply), cfg, durability="sync")
             return current
+        if current.get("status") == "version_conflict" and not snap.next:
+            return self.graph.invoke({"next_node": "fill"}, cfg, durability="sync")
         if snap.next:
             return self.graph.invoke(None, cfg, durability="sync")
         today = self.workflow.now().astimezone(ZONE).date().isoformat()

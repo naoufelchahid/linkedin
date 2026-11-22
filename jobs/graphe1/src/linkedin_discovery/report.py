@@ -68,6 +68,32 @@ def make_report(store, cycle_id):
         ),
     )
 
+    html = render_report(snapshot)
+    reports = store.data / "reports"
+    reports.mkdir(exist_ok=True, mode=0o700)
+    path = reports / (report_id + ".html")
+    with path.open("x") as stream:
+        stream.write(html)
+    path.chmod(0o600)
+    with store.db:
+        store.db.execute(
+            "INSERT INTO reports VALUES(?,?,?,?,?,?)",
+            (report_id, cycle_id, snapshot["created_at"], dump(snapshot), str(path), digest(html)),
+        )
+        store.db.executemany(
+            "INSERT INTO review_items VALUES(?,?,?,?)",
+            [
+                (report_id, n, i["version_id"], i["qualification_id"])
+                for n, i in enumerate(selected, 1)
+            ],
+        )
+    return report_id, path
+
+
+def render_report(snapshot):
+    report_id = snapshot["id"]
+    selected = snapshot["selected"]
+
     def e(value):
         return escape(str(value), quote=True)
 
@@ -88,44 +114,28 @@ def make_report(store, cycle_id):
 <details><summary>Texte de l’annonce sauvegardé</summary><p>{e(offer["description"])}</p></details>
 <p><strong>Ton verdict enregistré :</strong> {e(item["human_verdict"] or "À renseigner dans la conversation")}</p>
 <p>Répondre : rapport {e(report_id)}, annonce #{number}, retenir ou écarter.</p></article>""")
-    issues = "".join(f"<li>{e(r['profile'])} : {e(r['status'])} {e(r['error'])}</li>" for r in runs)
+    issues = "".join(
+        f"<li>{e(r['profile'])} : {e(r['status'])} {e(r['error'])}</li>" for r in snapshot["runs"]
+    )
     data_issues = "".join(
         f"<li>{e(i['offer']['title'])} : {e(i['status'])} {e(i['error'])}</li>"
         for i in snapshot["qualification_errors"]
     )
     ingestion_issues = "".join(
-        f"<li>{e(r['profile'])} : {e(r['error'])} ({r['total']})</li>" for r in errors
+        f"<li>{e(r['profile'])} : {e(r['error'])} ({r['total']})</li>"
+        for r in snapshot["ingestion_errors"]
     )
     totals = snapshot["totals"]
-    html = f"""<!doctype html><html lang="fr"><meta charset="utf-8">
+    return f"""<!doctype html><html lang="fr"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <title>Revue du pilote · {e(report_id[:8])}</title>
 <style>body{{font:17px/1.55 system-ui;margin:40px auto;padding:0 20px;max-width:960px;color:#17223b;background:#f4f6fa}}article,header{{background:white;border:1px solid #d8dfe9;border-radius:12px;padding:24px;margin:20px 0}}h1,h2{{line-height:1.2}}h3{{font-size:1em}}a{{color:#174fba}}blockquote{{margin-left:0;border-left:3px solid #536eab;padding-left:16px}}p{{overflow-wrap:anywhere}}details p{{white-space:pre-wrap}}</style>
 <header><h1>Revue du pilote de qualification</h1><p>Rapport privé figé : {e(report_id)}</p>
-<p>Cycle de qualification : {e(cycle_id)} · État : {e(cycle["status"])}</p>
-<p>Collecte source : {e(source["id"])} · État : {e(source["status"])}</p>
+<p>Cycle de qualification : {e(snapshot["cycle_id"])} · État : {e(snapshot["status"])}</p>
+<p>Collecte source : {e(snapshot["source_cycle_id"])} · État : {e(snapshot["source_status"])}</p>
 <p>{totals["annonces"]} annonces · {totals["qualifiees"]} qualifiées · {totals["retenues"]} retenues · {totals["erreurs"]} problèmes de qualification</p>
 <p>Échantillon : {len(selected)} annonces, cible 5 retenues sans incertitude, 5 avec incertitude, 5 écartées selon disponibilité.</p>
 <p>Les prérequis sont ignorés. Les missions imprécises sont acceptées avec incertitude.</p>
 <details><summary>Bilan de collecte et problèmes</summary><ul>{issues}{data_issues}{ingestion_issues}</ul></details></header>
 {"".join(cards) if cards else "<p>Aucune annonce qualifiée disponible pour la revue.</p>"}</html>"""
-    reports = store.data / "reports"
-    reports.mkdir(exist_ok=True, mode=0o700)
-    path = reports / (report_id + ".html")
-    with path.open("x") as stream:
-        stream.write(html)
-    path.chmod(0o600)
-    with store.db:
-        store.db.execute(
-            "INSERT INTO reports VALUES(?,?,?,?,?,?)",
-            (report_id, cycle_id, snapshot["created_at"], dump(snapshot), str(path), digest(html)),
-        )
-        store.db.executemany(
-            "INSERT INTO review_items VALUES(?,?,?,?)",
-            [
-                (report_id, n, i["version_id"], i["qualification_id"])
-                for n, i in enumerate(selected, 1)
-            ],
-        )
-    return report_id, path

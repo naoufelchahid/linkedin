@@ -220,19 +220,22 @@ def checked_result(result, offer, cv_text):
     elif result["probleme_donnees"]:
         raise ValueError("data_problem_with_verdict")
 
+    mission = result["mission_citee"].strip()
+    competence = result["competence_cv"].strip()
+
     def contained(quote, source):
         return (
             not quote or " ".join(quote.split()).casefold() in " ".join(source.split()).casefold()
         )
 
-    if not contained(result["mission_citee"], offer["description"]):
+    if not contained(mission, offer["description"]):
         raise ValueError("mission_quote_not_in_announcement")
-    if not contained(result["competence_cv"], cv_text):
+    if not contained(competence, cv_text):
         raise ValueError("skill_quote_not_in_cv")
     if (
         result["verdict"] == "retenir"
         and not result["incertitude"]
-        and not (result["mission_citee"] and result["competence_cv"])
+        and not (mission and competence)
     ):
         raise ValueError("evidence_missing")
     return result

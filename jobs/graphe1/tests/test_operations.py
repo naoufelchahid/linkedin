@@ -190,3 +190,45 @@ def test_automation_can_fail_on_partial_results_without_changing_legacy_exit(
         args.append("--fail-on-errors")
     assert cli.main(args) == expected
     assert json.loads(capsys.readouterr().out)["qualification_counts"]["error"] == 1
+
+
+def test_backup_preserves_favorite_from_open_wal(tmp_path):
+    store = Store(tmp_path / "state")
+    favorites = sqlite3.connect(store.data / "dashboard.sqlite3")
+    try:
+        favorites.execute("PRAGMA journal_mode=WAL")
+        favorites.execute("CREATE TABLE favorites(name TEXT)")
+        favorites.execute("INSERT INTO favorites VALUES('Rabat')")
+        favorites.commit()
+        archive = backup_state(store, tmp_path / "backups")["archive"]
+        with tarfile.open(archive) as tar:
+            restored = tmp_path / "restored.sqlite3"
+            restored.write_bytes(tar.extractfile("dashboard.sqlite3").read())
+        db = sqlite3.connect(restored)
+        try:
+            assert db.execute("SELECT name FROM favorites").fetchone() == ("Rabat",)
+        finally:
+            db.close()
+    finally:
+        favorites.close()
+        store.close()
+
+
+def test_interrupted_cv_publication_can_be_retried(tmp_path, monkeypatch):
+    import os
+
+    store = Store(tmp_path / "state")
+    try:
+
+        def interrupt(*args):
+            raise InterruptedError
+
+        with monkeypatch.context() as patch:
+            patch.setattr(os, "link", interrupt)
+            with pytest.raises(InterruptedError):
+                store.create_cycle(b"PDF", "CV", "prompt", {})
+        assert not list((store.data / "snapshots").glob("*.pdf"))
+        cycle = store.cycle(store.create_cycle(b"PDF", "CV", "prompt", {}))
+        assert (store.data / "snapshots" / (cycle["cv_hash"] + ".pdf")).read_bytes() == b"PDF"
+    finally:
+        store.close()

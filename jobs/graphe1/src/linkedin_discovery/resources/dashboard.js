@@ -397,19 +397,20 @@ function metrics() {
     fmt(data.offers.length) +
     "</strong></div>" +
     [
-      "Dans le pipe",
-      "Soumissions en cours",
-      "Candidatures envoyées",
-      "Erreurs de soumission",
+      ["Dans le pipe", "pipe"],
+      ["Soumissions en cours", "active"],
+      ["Candidatures envoyées", "submitted"],
+      ["Erreurs de soumission", "errors"],
     ]
-      .map(
-        (s) =>
-          '<div class="card">' +
-          s +
-          '<strong aria-label="Indisponible">—</strong></div>',
-      )
+      .map(([label, key]) => {
+        const count = data.applications?.[key];
+        const value = Number.isInteger(count)
+          ? "<strong>" + fmt(count) + "</strong>"
+          : '<strong aria-label="Indisponible">—</strong>';
+        return '<div class="card">' + label + value + "</div>";
+      })
       .join("") +
-    '</div><p class="muted">Le suivi des candidatures sera disponible avec le graphe 2.</p><h2>Nouvelles offres retenues par semaine</h2><div class="paper chart">' +
+    '</div><h2>Nouvelles offres retenues par semaine</h2><div class="paper chart">' +
     weeks
       .map(
         (w) =>
@@ -593,6 +594,7 @@ async function route() {
       ),
     );
   try {
+    if (page === "metrics") params.set("metrics", "1");
     const r = await fetch("/dashboard/data?" + params);
     if (!r.ok) throw Error();
     const loaded = await r.json();
