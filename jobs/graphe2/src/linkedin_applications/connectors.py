@@ -98,6 +98,7 @@ class Telegram:
 
 
 ACTIONS = {
+    "obstacle": [("done", "Vérifier le correctif")],
     "challenge": [("done", "Vérification terminée")],
     "registration": [
         ("allow", "Autoriser pour ce portail"),

@@ -66,3 +66,4 @@ echo "Trois lots, deux dossiers, versions A et B et CV relus depuis le worker is
 "${cli[@]}" --entrypoint python -v "$root/db/tests/submission_recovery.py:/recette.py:ro" "$image" /recette.py
 "${cli[@]}" --entrypoint python -v "$root/db/tests/attempt_trace.py:/recette.py:ro" "$image" /recette.py
 "${cli[@]}" --entrypoint python -v "$root/db/tests/telegram_answers.py:/recette.py:ro" "$image" /recette.py
+"${cli[@]}" --entrypoint python -v "$root/db/tests/portal_obstacles.py:/recette.py:ro" "$image" /recette.py

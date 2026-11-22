@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
+from .obstacles import describe
 from .telemetry import AttemptTrace
 
 ZONE = ZoneInfo("Africa/Casablanca")
@@ -147,6 +148,18 @@ class Workflow:
         answer = dict(interrupt(question))
         conflict = answer.pop("version_conflict", False)
         kind = question["kind"]
+        if diagnostic := question.get("diagnostic"):
+            cleared = self.browser.obstacle_cleared(state, diagnostic)
+            if self.submissions:
+                self.submissions.obstacle_checked(question["attempt_id"], cleared)
+            if not cleared:
+                return self.wait_for(
+                    kind,
+                    text=question["text"],
+                    diagnostic=diagnostic,
+                    attempt_id=question["attempt_id"],
+                )
+            return {"question": None, "status": "preparing", "next_node": "fill"}
         if kind == "mail":
             if (
                 answer["choice"] == "approve"
@@ -180,7 +193,11 @@ class Workflow:
                     "question": None,
                     **self.record_submission(state, receipt, reconciled=True),
                 }
-            if answer["choice"] == "retry" and not self.submissions:
+            if (
+                answer["choice"] == "retry"
+                and not self.submissions
+                and not state["submission"].get("verify_only")
+            ):
                 return {
                     "question": None,
                     "submission": None,
@@ -276,6 +293,34 @@ class Workflow:
                 if "browser_tab" in result
                 else {}
             )
+            diagnostic = describe(result, state)
+            if diagnostic:
+                if self.submissions:
+                    self.submissions.obstacle(attempt["id"], diagnostic)
+                if diagnostic["transmission_attempted"]:
+                    guard = {**attempt, "verify_only": True}
+                    return {
+                        **tab,
+                        "submission": guard,
+                        **self.verify({**state, **tab, "submission": guard}),
+                    }
+                update = {
+                    "submission": None,
+                    **tab,
+                    **self.wait_for(
+                        "challenge"
+                        if diagnostic["signal"] == "verification_humaine"
+                        else "obstacle",
+                        text=diagnostic["observation"],
+                        diagnostic=diagnostic,
+                        attempt_id=attempt["id"],
+                    ),
+                }
+                if self.submissions and not self.submissions.finish(
+                    state, outcome=update
+                ):
+                    return self.verify(state)
+                return update
             if receipt := result.get("receipt"):
                 return {**tab, **self.record_submission(state, receipt)}
             if result["transmission_attempted"] or result["kind"] in {

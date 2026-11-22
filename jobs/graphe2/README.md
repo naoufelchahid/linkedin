@@ -123,3 +123,9 @@ Le mandat `submission-v2` expose `fill_portal_account` quand la clé est configu
 Pour #15, `applications.dossier_portal_accounts(dossier_id, account_id)` rattache le dossier à la ligne de `applications.portal_accounts`. Cette ligne conserve le fournisseur, l’espace employeur, l’adresse de connexion et l’état initial `creation_en_cours`. Les états suivants sont `confirmation_en_attente` et `actif`. Un changement d’état de compte laisse le reçu de dépôt indépendant.
 
 La recette `db/tests/portal_accounts.sh` utilise PostgreSQL 17 jetable, Chrome et deux espaces synthétiques en mémoire. Définir `CHROME` et `PLAYWRIGHT` avec l’exécutable Chrome et le module Node Playwright. Le test crée deux comptes, restaure le dump dans une deuxième base et vérifie la connexion aux deux espaces après redémarrage du gestionnaire. Une adresse manquante, un accord manquant, un espace différent et une mauvaise clé sont contrôlés. Le transport de saisie vers Chrome est un double de recette ; la preuve de saisie par le vrai MCP Browsentic figure dans la recette #3.
+
+### Diagnostic des obstacles du portail
+
+Le mandat archive un signal structuré par tour. La matrice `applications.portal_obstacles` relie la tentative au domaine du portail, à l’étape, à une observation de vocabulaire fermé, à la cause et à la présence d’un geste de transmission. Les contrôles de reprise enregistrent la date et le résultat du correctif. Les observations normalisées évitent de copier un champ, une URL avec paramètres ou le détail libre du portail.
+
+Pour un obstacle avant transmission, « Vérifier le correctif » déclenche une lecture du même onglet. Une condition positive liée à l’offre doit être observée avant toute reprise. Un contrôle humain conserve l’attente de l’opérateur. Un HTTP 403 après validation laisse la cause inconnue et le dépôt à vérifier jusqu’à observation du reçu. La recette PostgreSQL `db/tests/application_lots.sh` couvre ces parcours avec un double du portail.

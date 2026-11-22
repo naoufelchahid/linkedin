@@ -122,3 +122,31 @@ def test_native_turn_selects_the_dossier_role_instead_of_a_file_id(
     browser.codex = SimpleNamespace(turn=turn)
     assert browser.run_form(state, [])["kind"] == "question"
     assert calls == [(4, "https://example.invalid/form", "cv", {"selector": "#resume"})]
+
+
+def test_obstacle_check_reads_same_tab_and_page_before_resume(tmp_path, monkeypatch):
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    browser = Browsentic(tmp_path, [], {})
+    state = {"browser_tab": 7, "offer": {"title": "Poste", "company": "Fixture"}}
+    diagnostic = {"portal": "fixture.invalid", "condition": "Champ disponible."}
+
+    @asynccontextmanager
+    async def session(*args):
+        yield object()
+
+    monkeypatch.setattr("linkedin_applications.browser.Session", session)
+    browser.connect = AsyncMock()
+    form = "https://fixture.invalid/form"
+    browser.current_url = AsyncMock(
+        side_effect=[form, form, form, form + "/other", "https://other.invalid/"]
+    )
+    browser.codex.turn = AsyncMock(return_value={"checked": True})
+
+    assert browser.obstacle_cleared(state, diagnostic)
+    assert not browser.obstacle_cleared(state, diagnostic)
+    assert not browser.obstacle_cleared(state, diagnostic)
+    assert browser.codex.turn.await_count == 2
+    for call in browser.codex.turn.await_args_list:
+        assert set(call.kwargs["mcp"][1]) == {"page_getPageInfo", "page_extractText"}

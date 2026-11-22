@@ -24,6 +24,25 @@ class Submissions:
             ).fetchone()
             return row
 
+    def obstacle(self, attempt, diagnostic):
+        with self.queue.connect() as db:
+            db.execute(
+                """INSERT INTO applications.portal_obstacles
+                   (attempt_id,portal,stage,signal,observation,cause,transmission_attempted)
+                   VALUES (%(attempt)s,%(portal)s,%(stage)s,%(signal)s,%(observation)s,%(cause)s,%(transmission_attempted)s)
+                   ON CONFLICT (attempt_id) DO NOTHING""",
+                {**diagnostic, "attempt": attempt},
+            )
+
+    def obstacle_checked(self, attempt, cleared):
+        with self.queue.connect() as db:
+            db.execute(
+                """UPDATE applications.portal_obstacles SET last_checked_at=clock_timestamp(),
+                   correction_result=%s WHERE attempt_id=%s AND NOT transmission_attempted
+                   AND correction_result IN ('en_attente','non_verifie')""",
+                ("etat_verifie" if cleared else "non_verifie", attempt),
+            )
+
     def active(self, dossier):
         with self.queue.connect() as db:
             return db.execute(
@@ -126,6 +145,11 @@ class Submissions:
             if not row:
                 return False
             if evidence:
+                db.execute(
+                    """UPDATE applications.portal_obstacles SET last_checked_at=clock_timestamp(),
+                       correction_result='recu_verifie' WHERE attempt_id=%s AND transmission_attempted""",
+                    (attempt["id"],),
+                )
                 db.execute(
                     """INSERT INTO applications.submission_receipts(dossier_id,attempt_id,evidence)
                        VALUES (%s,%s,%s)""",

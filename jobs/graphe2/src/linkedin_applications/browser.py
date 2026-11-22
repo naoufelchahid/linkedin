@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 from .codex import Codex, ConnectorError, Session, codex_environment
 from .graph import fingerprint
 from .mandate import TEXT as SUBMISSION_MANDATE
+from .obstacles import SIGNALS, STAGES
 from .urls import offer_url
 from .writer import dossier_context, schema
 
@@ -52,7 +53,12 @@ AGENT_RESULT = schema(
     evidence="string",
     confirmation_url="string",
     sent_at="string",
+    signal="string",
+    stage="string",
+    portal_origin="string",
 )
+AGENT_RESULT["properties"]["signal"]["enum"] = ["aucun", *SIGNALS]
+AGENT_RESULT["properties"]["stage"]["enum"] = list(STAGES)
 AGENT_RESULT["properties"]["kind"]["enum"] = [
     "submitted",
     "unknown",
@@ -521,6 +527,39 @@ class Browsentic:
                 "sent_at": output["sent_at"],
             }
         return output
+
+    def obstacle_cleared(self, state, diagnostic):
+        return asyncio.run(self.inspect_obstacle(state, diagnostic))
+
+    async def inspect_obstacle(self, state, diagnostic):
+        tab = state.get("browser_tab")
+        if not tab or not diagnostic["portal"]:
+            return False
+        async with Session(self.command, self.cwd, codex_environment()) as rpc:
+            await self.connect(rpc)
+            try:
+                url = await self.current_url(rpc, tab)
+                if urlsplit(url).hostname != diagnostic["portal"]:
+                    return False
+                observed = await self.codex.turn(
+                    "Lecture seule. Vérifie le poste et l’employeur visibles puis la condition "
+                    "dans l’onglet actif. Retourne checked=true seulement en présence d’un "
+                    "indice positif et attribuable à cette offre. Une affirmation de l’utilisateur "
+                    "ou l’absence du message antérieur ne suffit pas. "
+                    + json.dumps(
+                        {
+                            "title": state["offer"].get("title"),
+                            "company": state["offer"].get("company"),
+                            "condition": diagnostic["condition"],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    schema(checked="boolean"),
+                    mcp=(self.command, sorted(READ)),
+                )
+                return observed["checked"] and await self.current_url(rpc, tab) == url
+            except ConnectorError:
+                return False
 
     async def submit_async(self, state):
         async with (
