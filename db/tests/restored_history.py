@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import ormsgpack
 import psycopg
-from linkedin_discovery.documents import freeze_cv_in
+from linkedin_discovery.documents import cycle_cv, freeze_cv_in
 from linkedin_discovery.model import offer_url, plain
 from linkedin_discovery.retained import retained_rows
 from psycopg import sql
@@ -30,10 +30,17 @@ def require(condition, label):
 def discovery(db, pg, directory):
     db.row_factory = sqlite3.Row
     select = db.execute
-    for row in select("SELECT id,cv_hash FROM cycles ORDER BY created_at"):
+    for row in select("SELECT id,cv_hash,cv_text FROM cycles ORDER BY created_at"):
         pdf = (directory / "snapshots" / (row["cv_hash"] + ".pdf")).read_bytes()
         require(sha256(pdf).hexdigest() == row["cv_hash"], "CV original")
-        freeze_cv_in(pg, row["id"], pdf, None, "Copie restaurée du graphe 1")
+        freeze_cv_in(
+            pg,
+            row["id"],
+            pdf,
+            row["cv_text"],
+            "Copie restaurée du graphe 1",
+            text_is_frozen=True,
+        )
     for row in select("SELECT * FROM versions"):
         content = json.loads(row["content"])
         pg.execute(
@@ -314,6 +321,47 @@ def migrate(bundle, rollback):
                 "INSERT INTO applications.legacy_files VALUES(%s,%s,%s)",
                 (rel, (restored / rel).read_bytes(), h),
             )
+    # Relecture documentaire par le contrat public après la transaction de migration.
+    variants = set()
+    cycles = 0
+    with closing(
+        read_db(restored / "discovery/discovery.sqlite3", snapshot=True)
+    ) as legacy:
+        for ident, pdf_hash, source_text in legacy.execute(
+            "SELECT id,cv_hash,cv_text FROM cycles"
+        ):
+            pdf, text = cycle_cv("", ident)
+            require(
+                sha256(pdf).hexdigest() == pdf_hash and text == source_text,
+                "document du cycle",
+            )
+            variants.add((pdf_hash, sha256(text.encode()).digest()))
+            cycles += 1
+    with (
+        psycopg.connect() as pg,
+        closing(
+            read_db(restored / "applications/queue.sqlite3", snapshot=True)
+        ) as legacy,
+    ):
+        seen = set()
+        for cycle, mode, thread, payload in legacy.execute(
+            """SELECT l.cycle,l.mode,i.dossier,i.payload FROM items i JOIN lots l ON l.id=i.lot
+               ORDER BY l.id,i.position"""
+        ):
+            if (thread, mode) in seen:
+                continue
+            seen.add((thread, mode))
+            item = json.loads(payload)
+            row = pg.execute(
+                """SELECT v.sha256,v.markdown FROM applications.dossiers d
+                JOIN api.cycle_documents_v1 v ON v.cycle_id=d.cycle_id AND v.sha256=d.cv_sha256
+                WHERE d.candidate='restored' AND d.identity=%s AND d.mode=%s AND d.cycle_id=%s""",
+                (offer_url(item["offer"]["url"]), mode, cycle),
+            ).fetchone()
+            require(row == (item["cv_hash"], item["cv_text"]), "document du dossier")
+    print(
+        f"Textes et PDF vérifiés pour {cycles} cycles, {len(variants)} versions documentaires."
+    )
     # Reconstruction sur un nouvel emplacement à partir de la seule copie SQL.
     rollback.mkdir(mode=0o700)
     with psycopg.connect() as pg:

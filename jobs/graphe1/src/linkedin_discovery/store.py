@@ -90,7 +90,17 @@ class Store:
             raise ValueError("cycle_not_found")
         return dict(row)
 
-    def create_cycle(self, cv_bytes, cv_text, prompt, settings, ident=None, provenance="provided"):
+    def create_cycle(
+        self,
+        cv_bytes,
+        cv_text,
+        prompt,
+        settings,
+        ident=None,
+        provenance="provided",
+        *,
+        text_is_frozen=False,
+    ):
         ident = ident or uuid.uuid4().hex
         cv_hash = digest(cv_bytes)
         snapshots = self.data / "snapshots"
@@ -121,7 +131,14 @@ class Store:
                 (ident, now(), cv_hash, cv_text or "", digest(prompt), prompt, dump(settings)),
             )
             if self.postgres_dsn:
-                markdown = freeze_cv_in(self.db.connection, ident, cv_bytes, cv_text, provenance)
+                markdown = freeze_cv_in(
+                    self.db.connection,
+                    ident,
+                    cv_bytes,
+                    cv_text,
+                    provenance,
+                    text_is_frozen=text_is_frozen,
+                )
                 self.db.execute("UPDATE cycles SET cv_text=? WHERE id=?", (markdown, ident))
         return ident
 

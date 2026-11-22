@@ -171,7 +171,7 @@ class PostgresQueue:
         with self.connect() as db:
             rows = db.execute(
                 """SELECT d.*, cv.pdf, cv.markdown FROM applications.dossiers d
-                   JOIN documents.cv_versions cv ON cv.sha256=d.cv_sha256
+                   JOIN api.cycle_documents_v1 cv ON cv.cycle_id=d.cycle_id AND cv.sha256=d.cv_sha256
                    JOIN LATERAL (SELECT lot_id, position FROM applications.lot_dossiers
                      WHERE dossier_id=d.id ORDER BY lot_id,position LIMIT 1) first_lot ON true
                    WHERE d.candidate=%s AND NOT EXISTS (SELECT FROM applications.legacy_holds h WHERE h.dossier_id=d.id)

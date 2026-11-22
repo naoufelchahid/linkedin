@@ -26,6 +26,12 @@ createdb rehearsal_21
 psql -Xqf "$root/db/bootstrap.sql" >/dev/null
 psql -Xqf "$root/db/migrate.sql" >/dev/null
 export PYTHONPATH="$root/jobs/graphe1/src:$root/jobs/graphe2/src"
+createdb rehearsal_cv
+PGDATABASE=rehearsal_cv psql -Xqf "$root/db/bootstrap.sql" >/dev/null
+mkdir "$work/previous"
+git -C "$root" archive 739ebe1 db | tar -x -C "$work/previous"
+PGDATABASE=rehearsal_cv psql -Xqf "$work/previous/db/migrate.sql" >/dev/null
+PGDATABASE=rehearsal_cv "$python" "$root/db/tests/cycle_document_replay.py"
 "$python" "$root/db/tests/restored_history.py" "$bundle" "$work/rollback"
 if [[ ${2:-} == --history-only ]]; then exit 0; fi
 git -C "$root" archive 63f2166 jobs/graphe2/src jobs/graphe1/src | tar -x -C "$work"

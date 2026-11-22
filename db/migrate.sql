@@ -96,6 +96,11 @@ SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 26) A
     \ir migrations/026_runtime_g1.sql
     INSERT INTO discovery.schema_migrations (version) VALUES (26);
 \endif
+SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 105) AS pending \gset
+\if :pending
+    \ir migrations/105_frozen_cycle_text.sql
+    INSERT INTO discovery.schema_migrations (version) VALUES (105);
+\endif
 SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 110) AS pending \gset
 \if :pending
     \ir migrations/110_runtime_g2.sql

@@ -167,6 +167,7 @@ class DiscoveryService:
             prompt or qualification_prompt(prompt_file=self.config.prompt_file),
             settings,
             provenance=f"replay/{original['id']}",
+            text_is_frozen=True,
         )
         for item in snapshot["selected"]:
             self.store.ingest(ident, "review-replay", item["offer"], offer=item["offer"])
