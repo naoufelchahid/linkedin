@@ -2,12 +2,14 @@
 # Ouvre des lots synthétiques dans une base et un réseau Docker éphémères.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
-image=$(docker build -q -t linkedin-applications:recette-08 "$root/jobs/graphe2")
+image="linkedin-applications:recette-lots-$$"
+docker build -q -t "$image" "$root/jobs/graphe2" >/dev/null
 network=$(docker network create --internal "lots-recette-$$")
 pg=""
 cleanup() {
     if [[ -n "$pg" ]]; then docker rm -fv "$pg" >/dev/null; fi
     docker network rm "$network" >/dev/null
+    docker image rm "$image" >/dev/null
 }
 trap cleanup EXIT
 pg=$(docker run -d --rm --network "$network" --network-alias db \
