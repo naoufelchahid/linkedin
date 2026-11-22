@@ -34,6 +34,15 @@ class Portal(BaseHTTPRequestHandler):
                 )
                 + "</p>"
             )
+        elif self.path == "/secret":
+            body = """<title>Inscription de recette</title>
+                <input type=password id=secret autocomplete=off><output id=preuve></output>
+                <script>secret.oninput = async () => {
+                  const data = new TextEncoder().encode(secret.value);
+                  const digest = await crypto.subtle.digest("SHA-256", data);
+                  preuve.textContent = Array.from(new Uint8Array(digest),
+                    x => x.toString(16).padStart(2, "0")).join("");
+                };</script>"""
         elif self.path == "/piece":
             body = """<title>Pièce de recette</title><input type=file id=piece accept="application/pdf">
                 <output id=result></output><script>

@@ -2,12 +2,14 @@
 
 import argparse
 import os
+import secrets
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 from portal import portal
@@ -16,7 +18,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
 
 
-def worker(phase, nonce, image, proof):
+def worker(phase, nonce, image, proof, *, mcp_command=None, mcp_env=None):
     name = f"recette-browsentic-{proof.parent.name}-{phase}"
     command = [
         "docker",
@@ -35,14 +37,29 @@ def worker(phase, nonce, image, proof):
         phase,
         nonce,
     ]
-    with subprocess.Popen(
-        ["browsentic", "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE
-    ) as mcp:
+    if phase in {"mail", "secret"}:
+        command[2:2] = ["-v", f"{HERE}:/recette:ro"]
+    # stdout est le transport RPC. Le pilote Docker le journaliserait en clair.
+    sensitive = phase == "secret"
+    if sensitive:
+        command[2:2] = ["--log-driver=none"]
+    log = (proof / "worker-mcp.log").open("wb") if sensitive else nullcontext()
+    with (
+        log as diagnostic,
+        subprocess.Popen(
+            mcp_command or ["browsentic", "mcp"],
+            env=mcp_env,
+            stderr=diagnostic,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+        ) as mcp,
+    ):
         try:
             return subprocess.run(
                 command,
                 stdin=mcp.stdout,
                 stdout=mcp.stdin,
+                stderr=diagnostic,
                 timeout=None if phase == "pdf-panel" else 150,
                 check=False,
             ).returncode
@@ -85,9 +102,15 @@ def browser_phase(chrome, profile, extension, phase, nonce, image, proof):
         "--no-first-run",
         "about:blank",
     ]
-    with subprocess.Popen(
-        command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    ) as browser:
+    log = (
+        (proof / "chrome.log").open("wb")
+        if phase == "secret"
+        else nullcontext(subprocess.DEVNULL)
+    )
+    with (
+        log as diagnostic,
+        subprocess.Popen(command, stdout=diagnostic, stderr=diagnostic) as browser,
+    ):
         try:
             deadline = time.monotonic() + 90
             while time.monotonic() < deadline:
@@ -114,11 +137,40 @@ def browser_phase(chrome, profile, extension, phase, nonce, image, proof):
                 raise
 
 
+def secret_phase(chrome, profile, extension, image, proof, home):
+    canary = secrets.token_hex(32).encode()
+    source = proof / "canary"
+    with source.open("xb") as output:
+        os.fchmod(output.fileno(), 0o600)
+        output.write(canary)
+    try:
+        result = browser_phase(chrome, profile, extension, "secret", "", image, proof)
+        for root in (proof, home / "bridge", profile):
+            for path in root.rglob("*"):
+                if path.is_file() and not path.is_symlink() and path != source:
+                    data = path.read_bytes()
+                    if canary in data or canary.decode().encode("utf-16-le") in data:
+                        raise RuntimeError("Valeur factice trouvée dans " + path.name)
+        if result:
+            raise RuntimeError("Saisie protégée en échec, consulter worker-mcp.log")
+        print(
+            "Empreinte du champ vérifiée. Valeur absente du prompt, des checkpoints "
+            "SQLite et des journaux du worker, du MCP et du Bridge."
+        )
+        return 0
+    finally:
+        source.unlink(missing_ok=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chrome", required=True, type=Path)
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
+        "--secret", action="store_true", help="Tester la saisie protégée"
+    )
     parser.add_argument("--image", default="linkedin-browsentic-recette")
-    parser.add_argument(
+    modes.add_argument(
         "--pdf-panneau",
         action="store_true",
         help="Attendre la sélection de recette.pdf dans le panneau Browsentic",
@@ -144,6 +196,8 @@ def main():
         ]
         if args.pdf_panneau:
             command.append("--pdf-panneau")
+        if args.secret:
+            command.append("--secret")
         return subprocess.run(command, check=False).returncode
 
     # Un argument interne seul ne doit jamais démarrer un Bridge sur le réseau du poste.
@@ -217,6 +271,10 @@ def main():
                         server.nonce,
                         args.image,
                         proof,
+                    )
+                if args.secret:
+                    return secret_phase(
+                        chrome, profile, extension, args.image, proof, home
                     )
                 start = browser_phase(
                     chrome, profile, extension, "start", server.nonce, args.image, proof

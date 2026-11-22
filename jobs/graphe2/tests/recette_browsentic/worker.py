@@ -32,6 +32,38 @@ async def run(phase, nonce):
     browser = Browsentic("/tmp", [], {})
     await browser.connect(rpc)
 
+    if phase == "mail":
+
+        async def mail_call(name, **arguments):
+            reply = await rpc.request(
+                "tools/call", {"name": name, "arguments": arguments}
+            )
+            if reply.get("isError"):
+                raise ConnectorError("Erreur Thunderbird " + name)
+            return json.loads(reply["content"][0]["text"])
+
+        for _ in range(20):
+            rows = await mail_call("searchMessages", query="subject:" + nonce)
+            if rows:
+                break
+            await asyncio.sleep(1)
+        if len(rows) != 1 or rows[0]["subject"] != "Recette " + nonce:
+            raise RuntimeError("Message synthétique absent ou ambigu")
+        row = rows[0]
+        message = await mail_call(
+            "getMessage",
+            messageId=row["id"],
+            folderPath=row["folderPath"],
+            bodyFormat="text",
+        )
+        if "Confirmation locale " + nonce not in message["body"]:
+            raise RuntimeError("Corps du message synthétique incorrect")
+        print(
+            f"Worker UID {os.getuid()} : message Thunderbird retrouvé et lu",
+            file=sys.stderr,
+        )
+        return
+
     async def call(name, **arguments):
         result = await rpc.request("tools/call", {"name": name, "arguments": arguments})
         if result.get("isError"):
@@ -52,6 +84,12 @@ async def run(phase, nonce):
         await call("page_attachFile", **reference, target={"selector": "#piece"})
         await expect(hashlib.sha256(PDF.read_bytes()).hexdigest())
         print("SHA-256 du PDF lu depuis le champ de fichier vérifié", file=sys.stderr)
+
+    if phase == "secret":
+        from protected import fill_secret
+
+        await fill_secret(browser, rpc, expect)
+        return
 
     print(f"UID du worker Docker {os.getuid()}", file=sys.stderr)
     if phase == "pdf-panel":

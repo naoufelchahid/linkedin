@@ -25,3 +25,21 @@ Un arrêt de Chrome immédiatement après la réception du cookie a donné « Se
 Ajouter `--pdf-panneau` à la commande de recette pour ouvrir uniquement l’onglet « Pièce de recette ». Le worker attend dans ce profil jetable. Ouvrir Browsentic depuis le menu Extensions de **cette fenêtre**, puis utiliser **Attach a file** en bas du panneau pour choisir le fichier `recette.pdf` dont le chemin est affiché dans le terminal. Laisser l’onglet de recette actif. Le worker utilise ensuite `page_listFiles` et demande une fois `page_attachFile` avec le `fileId` obtenu. Un succès exige la lecture du SHA-256 dans le champ du portail. Fermer le navigateur ou interrompre le lanceur termine la recette.
 
 Par défaut, Browsentic demande une approbation pour `file-upload`, même lorsque le fichier a été choisi dans le panneau. Pour une action demandée **par l’agent du panneau**, la carte y affiche **Allow** pour une autorisation unique. Pour une action demandée **par le worker MCP externe**, la version 0.9.2 transforme la demande d’approbation en refus. Aucune carte ne reste en attente pour cet appel. Le profil de recette conserve les permissions par défaut. [Fichiers dans Browsentic](https://github.com/imshaikot/browsentic/blob/main/docs/guide/features/files.md) · [Approbations](https://github.com/imshaikot/browsentic/blob/main/docs/guide/approvals.md) · [Clients MCP externes](https://github.com/imshaikot/browsentic/blob/main/docs/guide/mcp-clients.md)
+
+## Connecteurs d’inscription
+
+Ces deux recettes utilisent le worker Docker ci-dessus. Le script monte le répertoire des scripts de recette en lecture seule. Pour Thunderbird, fournir le binaire Linux, Node.js et une copie de `tkasperczyk/thunderbird-mcp` contenant son extension construite et son bridge.
+
+```bash
+d=jobs/graphe2/tests/recette_browsentic
+unshare --user --map-current-user --net --keep-caps \
+  python3 "$d/thunderbird.py" --thunderbird /chemin/vers/thunderbird \
+  --mcp-repo /chemin/vers/thunderbird-mcp
+DISPLAY=:0 python3 "$d/run.py" --chrome /chemin/vers/chrome --secret
+```
+
+Le 22 novembre 2026, le worker UID 1000 a retrouvé un message unique avec `searchMessages`, puis vérifié le texte de son corps avec `getMessage`. Thunderbird 160.0 tournait hors ligne, avec Thunderbird MCP 0.9.2 (révision `1ab10183`) et Node.js 24.14.0. Une extension de recette importe un fichier EML dans les dossiers locaux d’un profil temporaire. Le bridge sur l’hôte utilise le fichier de connexion de ce profil et communique avec le worker sur les flux standard de Docker. Cette expérience couvre la lecture d’un message déjà disponible dans Thunderbird. La réception IMAP, l’authentification au fournisseur et les délais de synchronisation restent à tester avec une boîte de recette.
+
+Avec Browsentic 0.9.2 et Chrome for Testing 158.0.8127.18, un nœud LangGraph a lu une valeur aléatoire depuis un fichier local privé, a ciblé le champ de mot de passe et a appelé `page_fillInput`. Le serveur de recette sert un formulaire local dont le JavaScript calcule l’empreinte SHA-256 dans le navigateur. Le worker compare cette empreinte à celle du témoin. Deux contextes de prompt locaux encadrent l’opération. Le checkpoint SQLite final enregistre sa réussite.
+
+Le contrôle recherche la valeur entière en ASCII et UTF-16LE dans les prompts, la base de checkpoints, les journaux (worker, MCP, Chrome et Bridge) et les fichiers ordinaires du profil Chrome. Le 22 novembre 2026, aucune occurrence du témoin n’a été trouvée dans ces fichiers. Le fichier témoin est supprimé en fin de recette. Le transport RPC contient la valeur en clair et passe par stdout du conteneur. Pour ce test, `--log-driver=none` empêche Docker d’archiver le transport et les diagnostics stderr sont collectés à part. La recette fonctionne hors ligne, sans appel à un modèle ni export LangSmith. Les captures d’écran, les représentations compressées, les fragments en mémoire et les journaux d’un déploiement avec d’autres paramètres restent hors de la mesure.
