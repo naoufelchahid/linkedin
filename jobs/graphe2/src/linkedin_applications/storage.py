@@ -7,8 +7,8 @@ from contextlib import closing, contextmanager
 from hashlib import sha256
 from pathlib import Path
 
-from linkedin_discovery.model import offer_url
-from linkedin_discovery.retained import retained_rows
+from .legacy_selection import retained_rows
+from .urls import offer_url
 
 
 @contextmanager

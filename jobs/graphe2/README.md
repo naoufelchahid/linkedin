@@ -71,3 +71,9 @@ Les outils de lecture et les actions de formulaire des tours Codex passent par l
 Le MCP standard vise l’onglet actif. Le worker suspend donc les autres gestes de navigation pendant que le candidat contrôle un onglet. La navigation en arrière-plan sur un autre dossier reste à vérifier avec une interface qui cible explicitement l’onglet. Pour une action `page_attachFile`, ajouter `"piece": "cv"` ou `"piece": "letter"` et renseigner dans `files` l’identifiant Browsentic du document correspondant à son SHA-256. En l’absence d’identifiant, le candidat peut joindre le PDF dans l’onglet visible.
 
 Les fixtures utilisent des portails et une messagerie simulés. Les sélecteurs, les preuves réelles et les parcours Easy Apply et External restent à valider pendant la [recette](docs/specification.md#testing-decisions).
+
+## Ouvrir un lot depuis PostgreSQL
+
+Construire l’image avec `docker build -t linkedin-applications jobs/graphe2`. Fournir au conteneur un répertoire d’état privé inscriptible par son UID 1000, un DSN `APPLICATIONS_POSTGRES_DSN` pour un login membre de `linkedin_applications`, et un identifiant stable `APPLICATIONS_CANDIDATE`. Appliquer les migrations SQL au préalable.
+
+La commande `linkedin-applications --state /etat launch --cycle UUID --mode recipe --queue-only` ouvre le lot sans lancer la navigation. Le worker peut ensuite reprendre via `serve`. Les anciens appels avec `--discovery` et sans DSN gardent leur lecture SQLite. Chaque dossier SQL garde la version d’annonce et le CV du premier lot correspondant au candidat, à l’identité de l’offre et au mode. Les octets du CV sont matérialisés dans l’état privé du worker lorsqu’il prend le dossier. La recette autonome se lance par `db/tests/application_lots.sh`.

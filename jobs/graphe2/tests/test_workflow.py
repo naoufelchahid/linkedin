@@ -7,8 +7,6 @@ import pytest
 from linkedin_applications.graph import ZONE, fingerprint
 from linkedin_applications.runner import Runner, config
 from linkedin_applications.storage import Queue, database, selected
-from linkedin_discovery.model import normalize
-from linkedin_discovery.store import Store
 
 
 class Crash(RuntimeError):
@@ -209,6 +207,8 @@ def test_dossier_en_attente_nouveau_lot(env, choice):
 
 
 def test_correction_humaine_et_priorite(tmp_path):
+    normalize = pytest.importorskip("linkedin_discovery.model").normalize
+    Store = pytest.importorskip("linkedin_discovery.store").Store
     data = tmp_path / "discovery"
     store = Store(data)
     cycle = store.create_cycle(b"%PDF cv", "CV", "prompt", {})
@@ -371,6 +371,8 @@ def test_conflicting_destination_keeps_reply_without_submission(env):
 
 
 def test_metrics_count_confirmed_once_across_lots_and_keep_recipe_in_pipe(env):
+    normalize = pytest.importorskip("linkedin_discovery.model").normalize
+    Store = pytest.importorskip("linkedin_discovery.store").Store
     from linkedin_applications.worker import application_metrics
 
     discovery = env.queue.data / "discovery"

@@ -4,7 +4,7 @@ Depuis la racine du dépôt, construire le worker à partir du verrou du graphe 
 
 ```bash
 d=jobs/graphe2/tests/recette_browsentic
-docker build -f "$d/Dockerfile" -t linkedin-browsentic-recette jobs
+docker build -f "$d/Dockerfile" -t linkedin-browsentic-recette jobs/graphe2
 DISPLAY=:0 python3 "$d/run.py" --chrome /chemin/vers/chrome
 ```
 

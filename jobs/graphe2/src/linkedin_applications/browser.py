@@ -5,10 +5,9 @@ import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from linkedin_discovery.model import offer_url
-
 from .codex import Codex, ConnectorError, Session, codex_environment
 from .graph import fingerprint
+from .urls import offer_url
 from .writer import dossier_context, schema
 
 READ = {"page_getPageInfo", "page_extractText"}

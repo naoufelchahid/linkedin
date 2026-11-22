@@ -12,11 +12,8 @@ dependencies = [
   "httpx==0.28.1",
   "jsonschema==4.26.0",
   "python-dotenv==1.2.4",
-  "linkedin-discovery",
+  "psycopg[binary]==3.3.8",
 ]
-
-[tool.uv.sources]
-linkedin-discovery = { path = "../graphe1", editable = true }
 
 [dependency-groups]
 dev = ["pytest>=9,<10", "ruff>=0.14,<1"]

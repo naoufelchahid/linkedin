@@ -13,10 +13,10 @@ from pathlib import Path
 from uuid import UUID
 
 from dotenv import dotenv_values
-from linkedin_discovery.retained import retained_rows
 
 from .browser import Browsentic
 from .connectors import ACTIONS, RESPONSE_ACTIONS, Mail, Telegram, private_write
+from .legacy_selection import retained_rows
 from .runner import Runner, config
 from .storage import Queue, database, selected
 from .writer import Writer
@@ -229,14 +229,19 @@ def main():
     serve = commands.add_parser("serve")
     serve.add_argument("--once", action="store_true")
     metrics = commands.add_parser("metrics")
-    metrics.add_argument("--discovery", required=True, type=Path)
+    metrics.add_argument("--discovery", type=Path)
     for name in ("launch", "status"):
         command = commands.add_parser(name)
-        command.add_argument("--discovery", required=True, type=Path)
+        command.add_argument("--discovery", type=Path)
         command.add_argument("--cycle", required=True, type=lambda s: UUID(s).hex)
         if name == "launch":
             command.add_argument(
                 "--mode", choices=("recipe", "production"), required=True
+            )
+            command.add_argument(
+                "--queue-only",
+                action="store_true",
+                help="Ouvrir le lot sans démarrer le worker",
             )
             command.add_argument("--offer", action="append", default=[])
     args = parser.parse_args()
@@ -252,13 +257,34 @@ def main():
 
 def dispatch(args):
     data = args.state.resolve()
-    if args.command == "metrics":
-        print(json.dumps(application_metrics(data, args.discovery.resolve())))
-        return 0
     env = settings(data)
-    if args.command == "status":
-        return status(data, args)
-    queue = Queue(data)
+    dsn = env.get("APPLICATIONS_POSTGRES_DSN")
+    if dsn:
+        from .postgres_queue import PostgresQueue
+
+        queue = PostgresQueue(data, dsn, env.get("APPLICATIONS_CANDIDATE"))
+        if args.command == "status":
+            return postgres_status(queue, args.cycle)
+        if args.command == "metrics":
+            print(json.dumps(postgres_metrics(queue)))
+            return 0
+    else:
+        if args.command != "serve" and not args.discovery:
+            raise ValueError("applications_discovery_required")
+        if args.command == "metrics":
+            print(json.dumps(application_metrics(data, args.discovery.resolve())))
+            return 0
+        if args.command == "status":
+            return status(data, args)
+        queue = Queue(data)
+    discovery = args.discovery.resolve() if getattr(args, "discovery", None) else None
+    if args.command == "launch" and args.queue_only:
+        print(
+            json.dumps(
+                {"lot": queue.launch(discovery, args.cycle, args.mode, args.offer)}
+            )
+        )
+        return 0
     runner, telegram = services(queue, env)
     if args.command == "launch":
         runner.close()
@@ -274,7 +300,7 @@ def dispatch(args):
             )
         ):
             raise ValueError("applications_mail_configuration_incomplete")
-        lot = queue.launch(args.discovery.resolve(), args.cycle, args.mode, args.offer)
+        lot = queue.launch(discovery, args.cycle, args.mode, args.offer)
         fd = os.open(
             queue.data / "worker.log", os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600
         )
@@ -317,6 +343,46 @@ def dispatch(args):
             runner.close()
 
 
+def postgres_status(queue, cycle):
+    with queue.connect() as db:
+        rows = queue.selection(db, cycle)
+        ids = {
+            r["identity"]: str(r["id"])
+            for r in db.execute(
+                """SELECT identity,id FROM applications.dossiers WHERE candidate=%s
+               ORDER BY (mode='production')""",
+                (queue.candidate,),
+            )
+        }
+    counts = {
+        "prioritaires": sum(not row["incertitude"] for row in rows),
+        "incertaines": sum(bool(row["incertitude"]) for row in rows),
+        "dossiers": {},
+    }
+    runner = Runner(queue, None, None, None)
+    try:
+        for row in rows:
+            dossier = ids.get(row["identity"])
+            state = runner.graph.get_state(config(dossier)).values if dossier else {}
+            counts["dossiers"][row["content"]["key"]] = state.get("status", "queued")
+        counts["confirmed_today"] = runner.count(runner.workflow.now().date())
+    finally:
+        runner.close()
+    print(json.dumps(counts))
+    return 0
+
+
+def postgres_metrics(queue):
+    with queue.connect() as db:
+        rows = db.execute(
+            """SELECT DISTINCT s.identity,d.id FROM api.offres_retenues_v1 s
+                            LEFT JOIN applications.dossiers d ON d.identity=s.identity
+                            AND d.candidate=%s AND d.mode='production'""",
+            (queue.candidate,),
+        ).fetchall()
+    return count_snapshots(queue, {str(r["id"]) for r in rows if r["id"]}, len(rows))
+
+
 def application_metrics(data, discovery):
     counts = {"pipe": 0, "active": 0, "submitted": 0, "errors": 0}
     source = discovery / "discovery.sqlite3"
@@ -330,7 +396,12 @@ def application_metrics(data, discovery):
     counts["pipe"] = len(dossiers)
     if not dossiers or not (data / "queue.sqlite3").exists():
         return counts
-    runner = Runner(Queue(data), None, None, None)
+    return count_snapshots(Queue(data), dossiers, len(dossiers))
+
+
+def count_snapshots(queue, dossiers, total):
+    counts = {"pipe": total, "active": 0, "submitted": 0, "errors": 0}
+    runner = Runner(queue, None, None, None)
     try:
         for snap in runner.snapshots():
             state = snap.values

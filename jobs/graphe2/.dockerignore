@@ -1,0 +1,10 @@
+**
+!src/
+!src/**
+!Dockerfile
+!pyproject.toml
+!uv.lock
+!tests/
+!tests/recette_browsentic/
+!tests/recette_browsentic/*.py
+!tests/recette_browsentic/recette.pdf
