@@ -39,8 +39,6 @@ FORM_TOOLS = REVIEW_TOOLS + (
     "page_focusInput",
     "page_typeText",
     "page_pressKey",
-    "page_listFiles",
-    "page_attachFile",
     "page_submitForm",
 )
 
@@ -70,12 +68,14 @@ class Browsentic:
     background_safe = False
     native_submission = True
 
-    def __init__(self, data, command, policy):
+    def __init__(self, data, command, policy, *, policy_path=None, documents=None):
         self.cwd = Path(data) / "browser"
         self.codex = Codex(self.cwd)
         self.command = command
         self.actions = policy.get("actions", {})
         self.verifications = policy.get("verification", [])
+        self.documents = documents
+        self.policy_path = Path(policy_path) if policy_path else None
         self.files = policy.get("files", {})
         self.tabs = {}
 
@@ -163,17 +163,52 @@ class Browsentic:
             expected.path,
         )
 
-    def attachment(self, path):
-        entry = self.files.get(fingerprint(path)) if path else None
-        if isinstance(entry, str) and entry:
-            return {"fileId": entry}
-        if (
-            isinstance(entry, dict)
-            and isinstance(entry.get("downloadId"), str)
-            and entry["downloadId"]
+    async def attach_document(self, rpc, tab, url, state, piece, target):
+        if piece not in {"cv", "letter"}:
+            raise ConnectorError("browsentic_piece_unknown")
+        digest = state.get(piece + "_hash")
+        if self.documents:
+            path = self.documents.dossier_document(state["dossier"], piece)
+            if path and not digest:
+                digest = path.stem
+        else:
+            path = Path(state[piece]) if state.get(piece) else None
+        if path is None or not path.is_file():
+            raise ConnectorError(f"browsentic_{piece}_missing")
+        if not digest or digest != fingerprint(path):
+            raise ConnectorError(f"browsentic_{piece}_integrity")
+        files = self.files
+        if self.policy_path is not None:
+            try:
+                files = json.loads(self.policy_path.read_text()).get("files", {})
+            except (OSError, ValueError):
+                raise ConnectorError(
+                    f"browsentic_{piece}_registry_unavailable"
+                ) from None
+        entry = files.get(digest)
+        if isinstance(entry, str):
+            entry = {"fileId": entry}
+        if not isinstance(entry, dict):
+            raise ConnectorError(f"browsentic_{piece}_not_registered")
+        if entry.get("fileId"):
+            key, tool, rows = "fileId", "page_listFiles", "files"
+        elif entry.get("downloadId"):
+            key, tool, rows = "downloadId", "page_listDownloads", "downloads"
+        else:
+            raise ConnectorError(f"browsentic_{piece}_not_registered")
+        if await self.current_url(rpc, tab) != url:
+            raise ConnectorError("browsentic_destination_changed")
+        inventory = self.json_result(await self.use(rpc, tool, {}))
+        if not any(
+            row.get("id") == entry[key] and row.get("size") == path.stat().st_size
+            for row in inventory.get(rows, [])
         ):
-            return {"downloadId": entry["downloadId"]}
-        return {}
+            raise ConnectorError(f"browsentic_{piece}_reference_expired")
+        if await self.current_url(rpc, tab) != url:
+            raise ConnectorError("browsentic_destination_changed")
+        return await self.use(
+            rpc, "page_attachFile", {key: entry[key], "target": target}
+        )
 
     async def perform(self, rpc, tab, state, name, value=None, phase="prepare"):
         rule = self.actions.get(name, {})
@@ -221,10 +256,9 @@ class Browsentic:
             return await self.use(rpc, "page_navigate", {"url": dest.geturl()})
         args = {"target": {"selector": rule["selector"]}}
         if rule["tool"] == "page_attachFile":
-            reference = self.attachment(state.get(rule["piece"]))
-            if not reference:
-                raise ConnectorError("browsentic_attachment_not_registered")
-            args.update(reference)
+            return await self.attach_document(
+                rpc, tab, url, state, rule["piece"], args["target"]
+            )
         if field := rule.get("value_property"):
             if value is None:
                 raise ConnectorError("browsentic_field_value_missing")
@@ -390,14 +424,41 @@ class Browsentic:
 
     async def agent_form(self, state, memory, verify=False):
         # App Server appelle directement le MCP. Le graphe lit le résultat du tour.
-        documents = {}
-        if not verify:
-            for piece in ("cv", "letter"):
-                if path := state.get(piece):
-                    documents[piece] = {
-                        "name": Path(path).name,
-                        "attachment": self.attachment(path),
-                    }
+        documents = {piece: bool(state.get(piece)) for piece in ("cv", "letter")}
+        attach_tool = {
+            "name": "attach_dossier_document",
+            "description": "Joindre le CV ou la lettre figée au champ observé dans l’onglet actif.",
+            "inputSchema": schema(
+                piece="string", tab="integer", url="string", selector="string"
+            ),
+        }
+
+        async def attach(name, args):
+            try:
+                if verify or name != attach_tool["name"]:
+                    raise ConnectorError("browsentic_action_denied")
+                async with Session(
+                    self.command, self.cwd, codex_environment()
+                ) as session:
+                    await self.connect(session)
+                    await self.attach_document(
+                        session,
+                        args["tab"],
+                        args["url"],
+                        state,
+                        args["piece"],
+                        {"selector": args["selector"]},
+                    )
+            except ConnectorError as error:
+                return {
+                    "success": False,
+                    "contentItems": [{"type": "inputText", "text": str(error)}],
+                }
+            return {
+                "success": True,
+                "contentItems": [{"type": "inputText", "text": "Pièce jointe."}],
+            }
+
         context = {
             **dossier_context(state),
             "memory": memory,
@@ -424,9 +485,9 @@ class Browsentic:
                 "Pour un compte obligatoire sans décision applicable au portail, retourne "
                 "registration avec l’origine exacte. Pour une vérification humaine, un code "
                 "ou un consentement non confirmé retourne challenge. Pour une lettre requise "
-                "retourne letter. Pour joindre un PDF, utilise fileId ou downloadId selon la "
-                "référence Browsentic du document. Si la référence manque, retourne challenge "
-                "en précisant quelle pièce doit être associée. En cas de refus d’un outil, respecte le refus. "
+                "retourne letter si elle manque. Pour joindre un PDF, appelle attach_dossier_document "
+                "avec son rôle cv ou letter, le sélecteur du champ correspondant, l’onglet actif et son URL. "
+                "Si l’outil échoue retourne challenge avec la pièce et le motif exact. En cas de refus d’un outil, respecte le refus. "
                 "Transmets au plus une fois. Dès le premier geste pouvant transmettre, indique "
                 "transmission_attempted=true même si sa réponse se perd. Observe le résultat "
                 "et retourne submitted uniquement si une preuve identifie le dépôt de cette offre. "
@@ -441,6 +502,8 @@ class Browsentic:
             "Renseigne sent_at seulement si le portail affiche une heure fiable avec fuseau. "
             "Données du dossier :\n" + json.dumps(context, ensure_ascii=False),
             AGENT_RESULT,
+            tools=[] if verify else [attach_tool],
+            call=None if verify else attach,
             mcp=(self.command, REVIEW_TOOLS if verify else FORM_TOOLS),
         )
         if output["browser_tab"] <= 0:

@@ -68,7 +68,9 @@ Les outils de lecture et les actions de formulaire des tours Codex passent par l
 }
 ```
 
-Le MCP standard vise l’onglet actif. Le worker suspend donc les autres gestes de navigation pendant que le candidat contrôle un onglet. La navigation en arrière-plan sur un autre dossier reste à vérifier avec une interface qui cible explicitement l’onglet. Pour une action `page_attachFile`, ajouter `"piece": "cv"` ou `"piece": "letter"` et renseigner dans `files` l’identifiant Browsentic du document correspondant à son SHA-256. En l’absence d’identifiant, le candidat peut joindre le PDF dans l’onglet visible.
+Le MCP standard vise l’onglet actif. Le worker suspend donc les autres gestes de navigation pendant que le candidat contrôle un onglet. La navigation en arrière-plan sur un autre dossier reste à vérifier avec une interface qui cible explicitement l’onglet. Pour une action `page_attachFile`, ajouter `"piece": "cv"` ou `"piece": "letter"` et renseigner dans `files` l’identifiant Browsentic du document correspondant à son SHA-256. Le registre est relu à chaque pièce. Après redémarrage, associer l’empreinte au nouveau `fileId` obtenu par sélection autorisée dans le panneau (chaîne ou objet `{"fileId":"…"}`), ou à un `downloadId` autorisé. Le worker contrôle la pièce du dossier, l’inventaire actif, la taille, l’onglet et son URL avant l’appel. Une référence absente ou expirée identifie la pièce en attente. Le refus de permission de Browsentic reste applicable.
+
+En PostgreSQL, la première lettre générée est conservée dans `documents.dossier_letters`. Le CV et la lettre peuvent être rematérialisés quand le cache local disparaît. La recette `db/tests/application_lots.sh` compare les octets reçus dans deux champs par un serveur HTTP local après publication du CV B et remplacement de session. Son transport Browsentic est simulé. La preuve de téléversement via le MCP réel reste ouverte au #2.
 
 Les fixtures utilisent des portails et une messagerie simulés. Les sélecteurs, les preuves réelles et les parcours Easy Apply et External restent à valider pendant la [recette](docs/specification.md#testing-decisions).
 

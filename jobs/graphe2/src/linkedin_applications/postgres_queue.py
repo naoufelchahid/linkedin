@@ -102,6 +102,43 @@ class PostgresQueue:
         os.replace(output.name, path)
         return path
 
+    def dossier_letter(self, dossier, source=None):
+        """La première lettre enregistrée reste la pièce du dossier après reprise."""
+        with self.connect() as db:
+            if source is not None:
+                db.execute(
+                    """INSERT INTO documents.dossier_letters(dossier_id,pdf)
+                       SELECT id,%s FROM applications.dossiers
+                       WHERE id=%s AND candidate=%s ON CONFLICT DO NOTHING""",
+                    (Path(source).read_bytes(), dossier, self.candidate),
+                )
+            row = db.execute(
+                """SELECT l.sha256,l.pdf FROM documents.dossier_letters l
+                   JOIN applications.dossiers d ON d.id=l.dossier_id
+                   WHERE d.id=%s AND d.candidate=%s""",
+                (dossier, self.candidate),
+            ).fetchone()
+            if row:
+                return str(self.local_pdf(row["sha256"], row["pdf"]))
+            if source is not None:
+                raise ValueError("dossier_letter_unknown")
+            return None
+
+    def dossier_document(self, dossier, piece):
+        if piece == "letter":
+            path = self.dossier_letter(dossier)
+            return Path(path) if path else None
+        if piece != "cv":
+            raise ValueError("unknown_document")
+        with self.connect() as db:
+            row = db.execute(
+                """SELECT cv.sha256,cv.pdf FROM applications.dossiers d
+                   JOIN documents.cv_versions cv ON cv.sha256=d.cv_sha256
+                   WHERE d.id=%s AND d.candidate=%s""",
+                (dossier, self.candidate),
+            ).fetchone()
+            return self.local_pdf(row["sha256"], row["pdf"]) if row else None
+
     def items(self):
         with self.connect() as db:
             rows = db.execute(

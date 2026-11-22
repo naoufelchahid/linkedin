@@ -209,7 +209,10 @@ def services(queue, env):
         raise ValueError("applications_browser_command_missing")
     if not Path(env["APPLICATIONS_LETTER_TEMPLATE"]).is_file():
         raise ValueError("applications_letter_template_missing")
-    browser = Browsentic(queue.data, command, policy)
+    documents = queue if hasattr(queue, "dossier_document") else None
+    browser = Browsentic(
+        queue.data, command, policy, policy_path=policy_path, documents=documents
+    )
     return Runner(
         queue,
         browser,
@@ -217,6 +220,7 @@ def services(queue, env):
             queue.data,
             env["APPLICATIONS_LETTER_TEMPLATE"],
             env.get("APPLICATIONS_HUMANIZER"),
+            documents=documents,
         ),
         Mail(env),
     ), Telegram(env["APPLICATIONS_TELEGRAM_TOKEN"], env["APPLICATIONS_TELEGRAM_CHAT"])

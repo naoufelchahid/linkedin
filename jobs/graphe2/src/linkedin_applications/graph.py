@@ -18,6 +18,7 @@ class State(TypedDict, total=False):
     dossier: str
     mode: str
     offer: dict
+    cv_hash: str
     cv: str
     cv_text: str
     version: str
@@ -25,6 +26,7 @@ class State(TypedDict, total=False):
     next_node: str
     question: dict | None
     answers: list[dict]
+    letter_hash: str
     letter: str
     submission: dict | None
     mail: dict | None
@@ -103,7 +105,8 @@ class Workflow:
         }
 
     def letter(self, state):
-        return {"letter": self.writer.letter(state), "next_node": "fill"}
+        path = self.writer.letter(state)
+        return {"letter": path, "letter_hash": fingerprint(path), "next_node": "fill"}
 
     def wait(self, state):
         question = state["question"]

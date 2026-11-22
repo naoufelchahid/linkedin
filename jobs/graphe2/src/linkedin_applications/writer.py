@@ -25,12 +25,17 @@ def dossier_context(state):
 
 
 class Writer:
-    def __init__(self, data, template, humanizer=None):
+    def __init__(self, data, template, humanizer=None, documents=None):
+        self.documents = documents
         self.data = Path(data)
         self.template = Path(template)
         self.humanizer = Path(humanizer) if humanizer else None
 
     def letter(self, state):
+        if self.documents and (
+            saved := self.documents.dossier_letter(state["dossier"])
+        ):
+            return saved
         work = self.data / "documents" / state["dossier"] / uuid4().hex
         codex = Codex(work, writer=True)
         shutil.copyfile(self.template, work / "lettre.docx")
@@ -53,6 +58,8 @@ class Writer:
         if check.returncode or not check.stdout.strip():
             raise ConnectorError("letter_unreadable")
         pdf.chmod(0o600)
+        if self.documents:
+            return self.documents.dossier_letter(state["dossier"], pdf)
         return str(pdf)
 
     def draft(self, state):

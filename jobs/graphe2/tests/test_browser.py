@@ -76,3 +76,49 @@ def test_recipe_button_with_reused_selector_is_checked_by_label(tmp_path):
     browser.use = use
     with pytest.raises(ConnectorError, match="browsentic_action_target_changed"):
         asyncio.run(browser.perform(None, 1, {}, "next"))
+
+
+def test_native_turn_selects_the_dossier_role_instead_of_a_file_id(
+    tmp_path, monkeypatch
+):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    browser = Browsentic(tmp_path, [], {})
+    calls = []
+    rpc = object()
+    state = {"dossier": "synthetic", "mode": "production", "cv": "frozen.pdf"}
+
+    @asynccontextmanager
+    async def session(*args):
+        yield rpc
+
+    async def connect(actual):
+        assert actual is rpc
+
+    async def attach(actual, tab, url, current, piece, target):
+        assert actual is rpc and current is state
+        calls.append((tab, url, piece, target))
+
+    async def turn(task, schema, *, tools, call, mcp):
+        assert "page_attachFile" not in mcp[1]
+        assert "page_listFiles" not in mcp[1]
+        name = tools[0]["name"]
+        result = await call(
+            name,
+            {
+                "piece": "cv",
+                "tab": 4,
+                "url": "https://example.invalid/form",
+                "selector": "#resume",
+            },
+        )
+        assert result["success"]
+        return {"kind": "question", "browser_tab": 4, "confirmation_url": ""}
+
+    monkeypatch.setattr("linkedin_applications.browser.Session", session)
+    browser.connect = connect
+    browser.attach_document = attach
+    browser.codex = SimpleNamespace(turn=turn)
+    assert browser.run_form(state, [])["kind"] == "question"
+    assert calls == [(4, "https://example.invalid/form", "cv", {"selector": "#resume"})]

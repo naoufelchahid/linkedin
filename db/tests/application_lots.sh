@@ -23,23 +23,29 @@ sql -f /tmp/migrations/bootstrap.sql >/dev/null
 sql -f /tmp/migrations/migrate.sql >/dev/null
 sql <<'SQL'
 CREATE ROLE recette LOGIN IN ROLE linkedin_applications;
+SQL
+publish() {
+    sql -v version="$1" <<'SQL'
 INSERT INTO documents.cv_versions (sha256,pdf,markdown,provenance)
 SELECT encode(sha256(pdf),'hex'),pdf,name,'fixture' FROM
-(values ('A','%PDF A'::bytea), ('B','%PDF B'::bytea)) doc(name,pdf);
+(values (:'version',convert_to('%PDF ' || :'version', 'UTF8'))) doc(name,pdf);
 INSERT INTO discovery.cycles
-SELECT repeat(lower(markdown),32),'now',sha256,markdown,'p','p','{}','done' FROM documents.cv_versions;
+SELECT repeat(lower(markdown),32),'now',sha256,markdown,'p','p','{}','done' FROM documents.cv_versions WHERE markdown=:'version';
 INSERT INTO discovery.versions(id,offer_key,content,canonical_url)
-SELECT markdown,'k',jsonb_build_object('key','k','title',markdown),'https://example.invalid/1' FROM documents.cv_versions;
+SELECT markdown,'k',jsonb_build_object('key','k','title',markdown),'https://example.invalid/1' FROM documents.cv_versions WHERE markdown=:'version';
 INSERT INTO discovery.qualifications(id,version_id,cv_hash,prompt_hash,status,result)
-SELECT markdown,markdown,sha256,'p','done','{"verdict":"retenir","incertitude":false}' FROM documents.cv_versions;
-INSERT INTO discovery.cycle_items SELECT repeat(lower(markdown),32), markdown,markdown FROM documents.cv_versions;
+SELECT markdown,markdown,sha256,'p','done','{"verdict":"retenir","incertitude":false}' FROM documents.cv_versions WHERE markdown=:'version';
+INSERT INTO discovery.cycle_items SELECT repeat(lower(markdown),32), markdown,markdown FROM documents.cv_versions WHERE markdown=:'version';
 SQL
+}
+publish A
 cli=(docker run --rm --network "$network" -e "APPLICATIONS_POSTGRES_DSN=host=db dbname=postgres user=recette" -e APPLICATIONS_CANDIDATE=test)
 launch() { "${cli[@]}" "$image" --state /tmp/etat launch --cycle "$1" --mode "$2" --queue-only; }
 a=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 b=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 first=$(launch "$a" recipe)
 test "$(launch "$a" recipe)" = "$first"
+publish B
 launch "$b" recipe >/dev/null
 launch "$b" production >/dev/null
 test "$(sql -c 'SELECT count(*) FROM applications.lots')" = 3
@@ -57,3 +63,4 @@ for item, mode, version in zip(items, ["recipe","production"], ["A","B"], strict
     assert Path(item["cv"]).read_bytes() == ("%PDF " + version).encode()
 '
 echo "Trois lots, deux dossiers, versions A et B et CV relus depuis le worker isolé."
+"${cli[@]}" --entrypoint python -v "$root/db/tests/dossier_uploads.py:/recette.py:ro" "$image" /recette.py
