@@ -85,3 +85,16 @@ La commande `linkedin-applications --state /etat launch --cycle UUID --mode reci
 Le worker conserve le traçage automatique de l’état LangGraph désactivé. `APPLICATIONS_TRACE_LOCAL_PORT` permet d’observer la tentative de dépôt sur un collecteur local au format [REST de LangSmith](https://docs.langchain.com/langsmith/trace-with-api). La destination est le loopback du worker, sans proxy, redirection ou clé. Le projet de recette est `graphe2-recette`. L’identifiant du run parent correspond à `applications.submission_attempts.id`. Les sous-étapes portent les UUID de tentative et de dossier. Les entrées et les sorties sont vides. Les interruptions portent un libellé fixe.
 
 `db/tests/application_lots.sh` exerce deux processus du worker Docker, un portail synthétique et un collecteur HTTP de recette. La vérification inspecte les POST et PATCH, leur hiérarchie après reprise et le reçu SQL quand le collecteur est arrêté. La réception et la recherche dans une instance LangSmith hébergée restent à vérifier.
+
+### Mandat du formulaire
+
+Le worker embarque `resources/submission-v1.txt`. Avant le premier geste du tour natif, PostgreSQL enregistre le texte statique, son identifiant et son SHA-256 dans la tentative du dossier. La contrainte de la migration 012 vérifie l’empreinte. Le rôle du worker peut mettre à jour le bail et l’issue de la tentative. Ses privilèges préservent le mandat archivé. Les anciennes tentatives conservent une provenance inconnue. Les faits personnels sont fournis séparément au modèle.
+
+La recette suivante utilise l’environnement G2, Codex App Server authentifié, Node, un module Playwright installé et un exécutable Chrome. Dans chaque tour, le double MCP ouvre un navigateur jetable et fournit deux pages synthétiques en mémoire. Le modèle reçoit les libellés et les cibles visibles après chaque action. Les identifiants des champs changent à chaque lancement.
+
+```bash
+jobs/graphe2/.venv/bin/python jobs/graphe2/tests/recette_mandat/run.py \
+  --playwright /chemin/vers/node_modules/playwright --chrome /chemin/vers/chrome
+```
+
+La recette vérifie le fait obligatoire manquant sans réception, puis le reçu d’un dossier complet et l’issue incertaine d’un autre dépôt après validation. Chaque formulaire comporte un cadre, des champs obligatoires et un choix révélant un champ supplémentaire. Le transport de recette remplace Browsentic pendant ces trois tours. Les permissions de l’extension restent couvertes séparément par la recette du worker.

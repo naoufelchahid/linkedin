@@ -6,6 +6,8 @@ from threading import Event, Thread
 import psycopg
 from psycopg.types.json import Jsonb
 
+from . import mandate
+
 
 class Submissions:
     def __init__(self, queue, lease_seconds=120):
@@ -33,13 +35,18 @@ class Submissions:
 
     def begin(self, state):
         dossier, requested = state["dossier"], state["submission"]["id"]
+        provenance = (
+            (mandate.VERSION, mandate.SHA256, mandate.TEXT)
+            if state["submission"].get("native")
+            else (None, None, None)
+        )
         with self.queue.connect() as db:
             # Le verrou transactionnel porte sur le dossier, même si celui-ci n'a encore aucune tentative.
             db.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (dossier,)
             )
             row = db.execute(
-                """SELECT id::text, generation,status,outcome,started_at FROM applications.submission_attempts
+                """SELECT id::text, generation,status,outcome,started_at,mandate_text FROM applications.submission_attempts
                    WHERE dossier_id=%s AND (status<>'no_submission' OR id=%s)
                    ORDER BY generation DESC LIMIT 1""",
                 (dossier, requested),
@@ -48,14 +55,20 @@ class Submissions:
                 return False, row
             row = db.execute(
                 """INSERT INTO applications.submission_attempts
-                   (id,dossier_id,generation,version_id,cv_sha256,letter_sha256,lease_until,status)
+                   (id,dossier_id,generation,version_id,cv_sha256,letter_sha256,lease_until,status,mandate_version,mandate_sha256,mandate_text)
                    SELECT %s,d.id,1+COALESCE((SELECT max(generation) FROM applications.submission_attempts
                           WHERE dossier_id=d.id),0),d.version_id,d.cv_sha256,l.sha256,
-                          clock_timestamp()+%s * interval '1 second','transmitting'
+                          clock_timestamp()+%s * interval '1 second','transmitting',%s,%s,%s
                    FROM applications.dossiers d LEFT JOIN documents.dossier_letters l ON l.dossier_id=d.id
                    WHERE d.id=%s AND d.candidate=%s AND d.mode='production'
-                   RETURNING id::text,generation,status,started_at""",
-                (requested, self.lease_seconds, dossier, self.queue.candidate),
+                   RETURNING id::text,generation,status,started_at,mandate_text""",
+                (
+                    requested,
+                    self.lease_seconds,
+                    *provenance,
+                    dossier,
+                    self.queue.candidate,
+                ),
             ).fetchone()
             if not row:
                 raise ValueError("submission_dossier_invalid")

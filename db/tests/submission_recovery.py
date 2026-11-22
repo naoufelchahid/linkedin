@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 
+from linkedin_applications import mandate
 from linkedin_applications.postgres_queue import PostgresQueue
 from linkedin_applications.runner import Runner
 
@@ -22,6 +23,7 @@ class Portal:
         self.outcome = "after_click"
 
     def run_form(self, state, memory):
+        assert state["_mandate_text"] == mandate.TEXT
         self.turns += 1
         if self.outcome == "before_click":
             raise Crash
@@ -88,6 +90,16 @@ def scenario(directory, crash):
                 (item["dossier"],),
             ).fetchone()
             assert row["n"] == 1
+            saved = db.execute(
+                """SELECT mandate_version, mandate_sha256, mandate_text FROM applications.submission_attempts
+                   WHERE dossier_id=%s AND generation=1""",
+                (item["dossier"],),
+            ).fetchone()
+            assert (
+                saved["mandate_version"],
+                saved["mandate_sha256"],
+                saved["mandate_text"],
+            ) == (mandate.VERSION, mandate.SHA256, mandate.TEXT)
     finally:
         runner.close()
 

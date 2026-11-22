@@ -264,7 +264,7 @@ class Workflow:
             self.submissions.lease(state["dossier"], attempt),
             self.trace.step(state["dossier"], attempt, "transmission"),
         ):
-            result = self.transmit(state)
+            result = self.transmit({**state, "_mandate_text": row["mandate_text"]})
         return {"submission": attempt, **result}
 
     def transmit(self, state):

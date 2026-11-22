@@ -20,3 +20,6 @@ dev = ["pytest>=9,<10", "ruff>=0.14,<1"]
 
 [project.scripts]
 linkedin-applications = "linkedin_applications.worker:main"
+
+[tool.setuptools.package-data]
+linkedin_applications = ["resources/*.txt"]

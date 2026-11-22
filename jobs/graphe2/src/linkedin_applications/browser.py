@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .codex import Codex, ConnectorError, Session, codex_environment
 from .graph import fingerprint
+from .mandate import TEXT as SUBMISSION_MANDATE
 from .urls import offer_url
 from .writer import dossier_context, schema
 
@@ -470,37 +471,16 @@ class Browsentic:
                 "Vérifie uniquement si une candidature a déjà été déposée pour cette offre. "
                 "Cherche un reçu visible ou l’offre précise dans l’historique du portail. "
                 "Si la preuve manque, retourne unknown. Reste en lecture seule, "
-                "n’entame aucun formulaire et ne déclenche aucun nouveau dépôt."
+                "n’entame aucun formulaire et ne déclenche aucun nouveau dépôt. Indique son onglet, "
+                "ou 0 si inconnu, et une observation expurgée. Renseigne sent_at uniquement "
+                "pour un horodatage affiché fiable avec fuseau."
             )
         else:
-            mandate = (
-                "Prends en charge dans le navigateur tout le formulaire de cette offre, jusqu’à "
-                "sa validation et son dépôt. Choisis toi-même les champs et gestes d’après la page "
-                "et utilise les outils Browsentic directement. Suis les liens de candidature "
-                "propres à cette offre. Pour un formulaire intégré, inspecte frames dans "
-                "page_getPageInfo puis entre avec page_switchFrame({frame:{selector:...}}). "
-                "Réutilise les faits confirmés du dossier. Renseigne les champs et coche les "
-                "options dont la réponse est confirmée. Laisse vides les options facultatives "
-                "sans réponse confirmée. Pour un fait manquant indispensable, retourne question. "
-                "Pour un compte obligatoire sans décision applicable au portail, retourne "
-                "registration avec l’origine exacte. Pour une vérification humaine, un code "
-                "ou un consentement non confirmé retourne challenge. Pour une lettre requise "
-                "retourne letter si elle manque. Pour joindre un PDF, appelle attach_dossier_document "
-                "avec son rôle cv ou letter, le sélecteur du champ correspondant, l’onglet actif et son URL. "
-                "Si l’outil échoue retourne challenge avec la pièce et le motif exact. En cas de refus d’un outil, respecte le refus. "
-                "Transmets au plus une fois. Dès le premier geste pouvant transmettre, indique "
-                "transmission_attempted=true même si sa réponse se perd. Observe le résultat "
-                "et retourne submitted uniquement si une preuve identifie le dépôt de cette offre. "
-                "Si le sort du geste est inconnu retourne unknown. Pour une attente précise qui "
-                "survient avant toute transmission indique transmission_attempted=false."
-            )
+            mandate = state.get("_mandate_text") or SUBMISSION_MANDATE
         output = await self.codex.turn(
             mandate
-            + "\nReprends l’onglet du dossier si identifiable, sinon ouvre la page LinkedIn "
-            "de l’offre. Retourne l’identifiant numérique de l’onglet, ou 0 s’il est inconnu. "
-            "La preuve doit décrire ce que tu as observé, sans données d’authentification. "
-            "Renseigne sent_at seulement si le portail affiche une heure fiable avec fuseau. "
-            "Données du dossier :\n" + json.dumps(context, ensure_ascii=False),
+            + "\nDonnées du dossier :\n"
+            + json.dumps(context, ensure_ascii=False),
             AGENT_RESULT,
             tools=[] if verify else [attach_tool],
             call=None if verify else attach,
