@@ -122,6 +122,14 @@ def trusted(request):
     )
 
 
+def overview(request):
+    if not os.environ.get("DASHBOARD_POSTGRES_DSN"):
+        return asset(request)
+    if not trusted(request):
+        return Response(status_code=403)
+    return offers(request.query_params, overview=True)
+
+
 def offer_list(request):
     if not trusted(request):
         return Response(status_code=403)
@@ -233,7 +241,8 @@ async def action(request):
 
 app = Starlette(
     routes=[
-        Route("/dashboard", asset),
+        Route("/dashboard", overview),
+        Route("/dashboard/decouverte", asset),
         Route("/dashboard/assets/{asset}", asset),
         Route("/dashboard/data", data),
         Route("/dashboard/offres", offer_list),

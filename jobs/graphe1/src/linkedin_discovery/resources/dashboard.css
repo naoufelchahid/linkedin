@@ -539,3 +539,16 @@ button,
 .offer-detail { overflow-wrap: anywhere; }
 .offer-detail .decision { min-width: 0; }
 .offer-detail .job-copy h2:not(:first-child) { margin-top: 1.5em; }
+
+.overview .metric-links { display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:1rem }
+.metric-links a { display:grid;padding:1rem;border:1px solid var(--line);border-radius:.5rem }
+.metric-links strong { font-size:1.8rem }
+.overview section { margin:2rem 0 }
+.pie { display:flex;flex-wrap:wrap;gap:1rem;align-items:center }
+.pie svg { width:9rem;height:9rem }
+.pie ul { list-style:none;padding:0 }
+.pie li { margin:.5rem 0 }
+.pie i { display:inline-block;width:.7rem;height:.7rem;border-radius:50%;margin-right:.5rem }
+.pie a:focus-visible { outline:3px solid currentColor }
+.trend { width:min(100%,40rem);fill:#19634a }
+.trend polyline { fill:none;stroke:#19634a;stroke-width:2 }

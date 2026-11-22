@@ -35,11 +35,23 @@ PAGE_SIZE = 25
 PATH = "/dashboard/offres"
 
 
-def query_offers(db, params):
-    page = int(params.get("page", 1))
-    sort = params.get("tri", "activite")
-    if not 1 <= page <= 2_147_483_647 or sort not in SORTS:
-        raise ValueError
+DEPOSITS = {
+    "confirmé": "Dépôt confirmé",
+    "à vérifier": "Dépôt à vérifier",
+    "bloqué": "Bloquée après échec",
+    "autres": "Autres offres non postulées",
+}
+SCOPE_FIELDS = {
+    "cycle": "Cycle",
+    "du": "Collectée du",
+    "au": "Au",
+    "entreprise": "Entreprise",
+    "lieu": "Lieu",
+    "contrat": "Contrat",
+}
+
+
+def filtered_offers(params):
     scopes, scope_values = [], []
     for name, column in (("cycle", "cycle_id"), ("du", "observed_at"), ("au", "observed_at")):
         if value := params.get(name):
@@ -70,12 +82,37 @@ def query_offers(db, params):
         if value := params.get(key):
             conditions.append(column + " = %s")
             values.append(value)
+    if category := params.get("depot"):
+        if category == "non postulées":
+            conditions.append("deposit IN ('bloqué','autres')")
+        elif category in DEPOSITS:
+            conditions.append("deposit = %s")
+            values.append(category)
+        else:
+            raise ValueError
+        conditions.append("verdict = 'retenir'")
+    if week := params.get("semaine"):
+        conditions.append("date_trunc('week',receipt_at)::date = %s")
+        values.append(date.fromisoformat(week))
     scope = " AND ".join(scopes) or "true"
     where = " AND ".join(conditions) or "true"
     source = f"""WITH latest AS (SELECT DISTINCT ON (identity) * FROM api.offres_web_v1
                    WHERE {scope} ORDER BY identity, observed_at DESC, cycle_id DESC, version_id)
-                 SELECT * FROM latest WHERE {where}"""
-    bindings = scope_values + values
+                 SELECT * FROM (SELECT latest.*, suivi.receipt_at, suivi.activity AS state_since,
+                    CASE latest.state WHEN 'dépôt confirmé' THEN 'confirmé'
+                         WHEN 'dépôt à vérifier' THEN 'à vérifier' WHEN 'bloquée' THEN 'bloqué'
+                         ELSE 'autres' END AS deposit
+                    FROM latest LEFT JOIN api.suivi_offres_v1 suivi USING(identity)) classified
+                 WHERE {where}"""
+    return source, scope_values + values
+
+
+def query_offers(db, params):
+    page = int(params.get("page", 1))
+    sort = params.get("tri", "activite")
+    if not 1 <= page <= 2_147_483_647 or sort not in SORTS:
+        raise ValueError
+    source, bindings = filtered_offers(params)
     total = db.execute(f"SELECT count(*) AS n FROM ({source}) filtered", bindings).fetchone()["n"]
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     page = min(page, pages)
@@ -120,6 +157,17 @@ def render_offers(params, rows, total, page, pages):
             select("tri", "Tri", {k: v[1] for k, v in SORTS.items()}, "activite"),
         ]
     )
+    if params.get("depot"):
+        fields += select(
+            "depot",
+            "Dépôt des offres retenues",
+            {"": "Tous", **DEPOSITS, "non postulées": "Non postulées"},
+        )
+    if params.get("semaine"):
+        fields += field("semaine", "Semaine de confirmation (lundi)", "date")
+    dashboard_url = "/dashboard?" + escape(
+        urlencode({k: params[k] for k in SCOPE_FIELDS if params.get(k)})
+    )
     body = []
     for row in rows:
         title = label(row["title"])
@@ -148,15 +196,15 @@ def render_offers(params, rows, total, page, pages):
       <meta name="viewport" content="width=device-width,initial-scale=1">
       <title>Offres · Découverte</title><link rel="stylesheet" href="/dashboard/assets/css">
       <header><strong>Découverte</strong><nav aria-label="Navigation principale">
-      <a href="{PATH}" aria-current="page">Offres</a><a href="/dashboard#metrics">Vue d’ensemble</a>
-      <a href="/dashboard#lancer">Lancer une découverte</a></nav></header>
+      <a href="{PATH}" aria-current="page">Offres</a><a href="{dashboard_url}#metrics">Vue d’ensemble</a>
+      <a href="/dashboard/decouverte#lancer">Lancer une découverte</a></nav></header>
       <main><h1>Offres</h1><form action="{PATH}" method="get" class="tools">{fields}
       <button class="primary">Appliquer</button><a href="{PATH}">Réinitialiser</a></form>
       <p id="count">{(str(total) + (" offre" if total == 1 else " offres")) if total else "Aucune offre"}</p>
       {listing}</main></html>"""
 
 
-def offers(params, offer_id=None):
+def offers(params, offer_id=None, *, overview=False):
     dsn = os.environ.get("DASHBOARD_POSTGRES_DSN")
     if not dsn:
         return PlainTextResponse("Connexion de lecture indisponible.", status_code=503)
@@ -165,6 +213,10 @@ def offers(params, offer_id=None):
             db.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
             db.execute("SET LOCAL ROLE linkedin_web")
             db.execute("SET LOCAL TIME ZONE 'UTC'")
+            if overview:
+                from .web_metrics import overview_page
+
+                return overview_page(db, params)
             if offer_id is not None:
                 from .web_offer_detail import detail
 

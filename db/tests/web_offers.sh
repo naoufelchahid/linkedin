@@ -27,3 +27,5 @@ PYTHONPATH="$root/jobs/graphe1/src" "$python" "$root/db/tests/web_offer_detail.p
 rg -q 'data-detail="ok"' "$work/detail-dom"
 echo 'Fiche, chronologie, reçu et retour à la page filtrée vérifiés.'
 echo 'Liste web vérifiée sur PostgreSQL, desktop et mobile.'
+PYTHONPATH="$root/jobs/graphe1/src" "$python" "$root/db/tests/web_metrics.py" "$work"
+echo 'Indicateurs, secteurs, courbe et parcours mobile vérifiés.'
