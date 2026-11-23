@@ -5,6 +5,6 @@ COPY pyproject.toml uv.lock ./
 COPY src ./src
 RUN uv sync --locked --no-dev --no-editable \
     && useradd --create-home --uid 1000 worker
-COPY tests/recette_browsentic/*.py tests/recette_browsentic/recette.pdf /recette/
+COPY --chown=1000:1000 tests/recette_browsentic/*.py tests/recette_browsentic/recette.pdf /recette/
 ENV PATH="/worker/graphe2/.venv/bin:${PATH}"
 USER worker

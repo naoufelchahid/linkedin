@@ -43,3 +43,19 @@ Le 22 novembre 2026, le worker UID 1000 a retrouvé un message unique avec `sear
 Avec Browsentic 0.9.2 et Chrome for Testing 158.0.8127.18, un nœud LangGraph a lu une valeur aléatoire depuis un fichier local privé, a ciblé le champ de mot de passe et a appelé `page_fillInput`. Le serveur de recette sert un formulaire local dont le JavaScript calcule l’empreinte SHA-256 dans le navigateur. Le worker compare cette empreinte à celle du témoin. Deux contextes de prompt locaux encadrent l’opération. Le checkpoint SQLite final enregistre sa réussite.
 
 Le contrôle recherche la valeur entière en ASCII et UTF-16LE dans les prompts, la base de checkpoints, les journaux (worker, MCP, Chrome et Bridge) et les fichiers ordinaires du profil Chrome. Le 22 novembre 2026, aucune occurrence du témoin n’a été trouvée dans ces fichiers. Le fichier témoin est supprimé en fin de recette. Le transport RPC contient la valeur en clair et passe par stdout du conteneur. Pour ce test, `--log-driver=none` empêche Docker d’archiver le transport et les diagnostics stderr sont collectés à part. La recette fonctionne hors ligne, sans appel à un modèle ni export LangSmith. Les captures d’écran, les représentations compressées, les fragments en mémoire et les journaux d’un déploiement avec d’autres paramètres restent hors de la mesure.
+
+## Contrôle du fichier avant transfert
+
+Le correctif local d'extension se construit à partir du tag `v0.9.2` de Browsentic. Il compare l'empreinte aux octets exacts du PDF et vérifie l'URL active avant de remplir le champ. Les permissions Browsentic continuent de s'appliquer. Depuis la racine du projet, après avoir récupéré le tag dans un répertoire de travail séparé, appliquer le correctif et construire l'extension.
+
+```bash
+git -C /chemin/vers/browsentic apply "$PWD/jobs/graphe2/connectors/browsentic/verify-attachment.patch"
+(cd /chemin/vers/browsentic && yarn install --immutable && yarn compile && yarn build)
+d=jobs/graphe2/tests/recette_browsentic
+docker build -f "$d/Dockerfile" -t linkedin-browsentic-verification jobs/graphe2
+DISPLAY=:0 python3 "$d/run.py" --chrome /chemin/vers/chrome \
+  --image linkedin-browsentic-verification \
+  --verified-documents /chemin/vers/browsentic/dist/chrome-mv3
+```
+
+Le test crée une configuration temporaire réservée au localhost. Il télécharge deux PDF factices de même taille. Le chemin normal `attach_document` essaie d'abord la mauvaise référence pour le CV et vérifie que le champ reste vide. Il joint ensuite les deux bonnes références et compare les empreintes dans les champs indépendants.

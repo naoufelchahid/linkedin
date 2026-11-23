@@ -62,37 +62,13 @@ def inside():
                 """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Lettre synthetique de recette pour Atelier Atlas au poste d’Analyste de données</w:t></w:r></w:p></w:body></w:document>""",
             )
 
-        async def render(codex, *args):
-            await asyncio.to_thread(
-                subprocess.run,
-                ["libreoffice", "--headless", "--convert-to", "pdf", "lettre.docx"],
-                cwd=codex.cwd,
-                capture_output=True,
-                check=True,
-                timeout=40,
-            )
-            await asyncio.to_thread(
-                subprocess.run,
-                [
-                    "pdftoppm",
-                    "-f",
-                    "1",
-                    "-l",
-                    "1",
-                    "-scale-to",
-                    "320",
-                    "-png",
-                    "lettre.pdf",
-                    "page",
-                ],
-                cwd=codex.cwd,
-                check=True,
-                timeout=15,
-            )
-            assert (codex.cwd / "page-1.png").read_bytes().startswith(b"\x89PNG")
-            return {"checked": True}
+        async def write(codex, *args):
+            return {
+                "subject": "Analyste de données — Atelier Atlas",
+                "paragraphs": ["Lettre synthétique adaptée."],
+            }
 
-        with patch.object(Codex, "turn", render):
+        with patch.object(Codex, "turn", write):
             pdf = Writer(root, template).letter(
                 {
                     "dossier": "fixture",
@@ -103,9 +79,27 @@ def inside():
                 }
             )
         content = subprocess.check_output(["pdftotext", pdf, "-"], timeout=15)
-        assert b"Lettre synthetique de recette" in content
+        assert "Lettre synthétique adaptée." in content.decode()
+        assert b"Lettre synthetique de recette" not in content
+        subprocess.run(
+            [
+                "pdftoppm",
+                "-f",
+                "1",
+                "-l",
+                "1",
+                "-scale-to",
+                "320",
+                "-png",
+                pdf,
+                str(root / "page"),
+            ],
+            check=True,
+            timeout=15,
+        )
+        assert (root / "page-1.png").read_bytes().startswith(b"\x89PNG")
         assert os.stat(pdf).st_mode & 0o777 == 0o600
-        with patch.object(Codex, "turn", render):
+        with patch.object(Codex, "turn", write):
             try:
                 Writer(root, template).letter(
                     {

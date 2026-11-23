@@ -6,6 +6,11 @@ from secrets import token_hex
 
 BASE = "http://127.0.0.1:18202"
 PDF = Path(__file__).with_name("recette.pdf")
+PIECES = {"cv": b"CV____", "letter": b"LETTRE"}
+
+
+def document(role):
+    return PDF.read_bytes() + b"\n%" + PIECES[role] + b"\n"
 
 
 class Portal(BaseHTTPRequestHandler):
@@ -54,6 +59,26 @@ class Portal(BaseHTTPRequestHandler):
         elif self.path == "/recette.pdf":
             body = PDF.read_bytes()
             headers["Content-Disposition"] = 'attachment; filename="recette.pdf"'
+        elif self.path in {"/cv.pdf", "/letter.pdf"}:
+            name = self.path.removeprefix("/")
+            body = document(name.removesuffix(".pdf"))
+            headers["Content-Disposition"] = f'attachment; filename="{name}"'
+        elif self.path == "/documents":
+            body = """<title>Pièces vérifiées</title>
+                <input type=file id=cv><output id=cv_hash>cv: vide</output>
+                <input type=file id=letter><output id=letter_hash>letter: vide</output>
+                <script>
+                for (const id of ['cv', 'letter']) {
+                  const field = document.getElementById(id);
+                  field.onchange = async () => {
+                    const bytes = await field.files[0].arrayBuffer();
+                    const digest = await crypto.subtle.digest("SHA-256", bytes);
+                    const hex = Array.from(new Uint8Array(digest),
+                      x => x.toString(16).padStart(2, "0")).join("");
+                    document.getElementById(id + '_hash').textContent = id + ': ' + hex;
+                  };
+                }
+                </script>"""
         else:
             self.send_error(404)
             return

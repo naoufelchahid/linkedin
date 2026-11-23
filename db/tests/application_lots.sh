@@ -40,6 +40,10 @@ INSERT INTO discovery.cycle_items SELECT repeat(lower(markdown),32), markdown,ma
 SQL
 }
 publish A
+test "$(sql -c 'SELECT count(*) FROM api.offres_retenues_v1')" = 1
+test "$(sql -c 'SELECT count(*) FROM applications.lots')" = 0
+test "$(sql -c 'SELECT count(*) FROM applications.dossiers')" = 0
+test "$(sql -c 'SELECT count(*) FROM runtime_g2.checkpoints')" = 0
 cli=(docker run --rm --network "$network" -e "APPLICATIONS_POSTGRES_DSN=host=db dbname=postgres user=recette" -e APPLICATIONS_CANDIDATE=test)
 followup_mail() {
     "${cli[@]}" --entrypoint python -v "$root/db/tests/followup_mail.py:/recette.py:ro" "$image" /recette.py

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from linkedin_applications.browser import Browsentic
 from linkedin_applications.codex import ConnectorError, Session
-from portal import BASE, PDF
+from portal import BASE, PDF, document
 
 
 class PipeSession(Session):
@@ -92,6 +92,44 @@ async def run(phase, nonce):
         return
 
     print(f"UID du worker Docker {os.getuid()}", file=sys.stderr)
+    if phase == "verified-documents":
+        url = BASE + "/documents"
+        tab = (await call("page_openTab", url=url))["tabId"]
+        state = {}
+        refs = {}
+        for role in ("cv", "letter"):
+            if await browser.current_url(rpc, tab) != url:
+                raise ConnectorError("L’onglet de test a changé")
+            data = document(role)
+            path = Path("/tmp") / (role + ".pdf")
+            path.write_bytes(data)
+            digest = hashlib.sha256(data).hexdigest()
+            state.update({role: str(path), role + "_hash": digest})
+            result = await call("page_captureDownload", url=BASE + "/" + path.name)
+            refs[role] = {"downloadId": result["downloadId"]}
+        browser.files[state["cv_hash"]] = refs["letter"]
+        try:
+            await browser.attach_document(
+                rpc, tab, url, state, "cv", {"selector": "#cv"}
+            )
+        except ConnectorError as exc:
+            if str(exc) != "browsentic_page_attachFile":
+                raise
+        else:
+            raise RuntimeError("Le mauvais document a été accepté")
+        await expect("cv: vide")
+        for role in ("cv", "letter"):
+            digest = state[role + "_hash"]
+            browser.files[digest] = refs[role]
+            await browser.attach_document(
+                rpc, tab, url, state, role, {"selector": "#" + role}
+            )
+            await expect(role + ": " + digest)
+        print(
+            "Mauvais PDF rejeté avant transfert. CV et lettre exacts dans leurs champs.",
+            file=sys.stderr,
+        )
+        return 0
     if phase == "pdf-panel":
         piece = await call("page_openTab", url=BASE + "/piece")
         print(

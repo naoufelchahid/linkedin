@@ -50,7 +50,9 @@ def check(root, base, received):
         def __init__(self, files):
             self.files = files
 
-        async def request(self, method, params):
+        async def request(self, method, params=None):
+            if method == "tools/list":
+                return {"tools": []}
             name = params["name"]
             if name == "page_switchTab":
                 result = {"activeTabId": 1, "url": base}

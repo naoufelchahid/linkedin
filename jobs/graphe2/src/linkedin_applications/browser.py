@@ -223,7 +223,29 @@ class Browsentic:
         # L’envoi doit réutiliser les octets épinglés, jamais résoudre l’ID à nouveau.
         pin = getattr(rpc, "pin_attachment", None)
         if pin is None:
-            raise DocumentVerificationError(piece, "session_bytes_unverified")
+            tools = (await rpc.request("tools/list")).get("tools", [])
+            attach = next(
+                (tool for tool in tools if tool["name"] == "page_attachFile"), {}
+            )
+            properties = attach.get("inputSchema", {}).get("properties", {})
+            if not {"expectedSha256", "expectedUrl"} <= properties.keys():
+                raise DocumentVerificationError(piece, "session_bytes_unverified")
+            if await self.current_url(rpc, tab) != url:
+                raise ConnectorError("browsentic_destination_changed")
+            response = await self.use(
+                rpc,
+                "page_attachFile",
+                {
+                    key: entry[key],
+                    "expectedSha256": digest,
+                    "expectedUrl": url,
+                    "target": target,
+                },
+            )
+            result = self.json_result(response)
+            if result.get("attached") is not True or result.get("sha256") != digest:
+                raise DocumentVerificationError(piece, "session_bytes_unverified")
+            return response
         content, send = await pin({key: entry[key]})
         if not isinstance(content, bytes) or sha256(content).hexdigest() != digest:
             raise DocumentVerificationError(piece, "session_bytes_mismatch")

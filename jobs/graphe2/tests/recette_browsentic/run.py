@@ -1,8 +1,10 @@
 """Recette Linux du worker Docker vers le Bridge et le navigateur sur l’hôte."""
 
 import argparse
+import json
 import os
 import secrets
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -175,6 +177,7 @@ def main():
         action="store_true",
         help="Attendre la sélection de recette.pdf dans le panneau Browsentic",
     )
+    modes.add_argument("--verified-documents", type=Path, metavar="EXTENSION_BUILD")
     parser.add_argument("--isolated", metavar="PARENT_NETNS", help=argparse.SUPPRESS)
     args = parser.parse_args()
     chrome = args.chrome.resolve(strict=True)
@@ -198,6 +201,11 @@ def main():
             command.append("--pdf-panneau")
         if args.secret:
             command.append("--secret")
+        if args.verified_documents:
+            command += [
+                "--verified-documents",
+                str(args.verified_documents.resolve(strict=True)),
+            ]
         return subprocess.run(command, check=False).returncode
 
     # Un argument interne seul ne doit jamais démarrer un Bridge sur le réseau du poste.
@@ -258,6 +266,27 @@ def main():
                     check=True,
                     stdout=subprocess.DEVNULL,
                 )
+                if args.verified_documents:
+                    shutil.copytree(
+                        args.verified_documents, extension, dirs_exist_ok=True
+                    )
+                    config = home / "bridge" / "config.json"
+                    config.parent.mkdir(mode=0o700, exist_ok=True)
+                    settings = json.loads(config.read_text()) if config.exists() else {}
+                    settings.setdefault("guardrails", {}).setdefault(
+                        "rules", {}
+                    ).update({"file-upload": "allow", "file-download": "allow"})
+                    config.write_text(json.dumps(settings))
+                    config.chmod(0o600)
+                    return browser_phase(
+                        chrome,
+                        profile,
+                        extension,
+                        "verified-documents",
+                        server.nonce,
+                        args.image,
+                        proof,
+                    )
                 if args.pdf_panneau:
                     print(
                         f"PDF à sélectionner dans le panneau Browsentic : {HERE / 'recette.pdf'}",

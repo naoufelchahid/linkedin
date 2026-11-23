@@ -167,11 +167,13 @@ Réserver un volet à l’avancement : état courant, date du dernier changement
 | 2. Prototypes | Tester Docker vers Browsentic, la saisie protégée d’un secret et la lecture Thunderbird via MCP. | Identifier les permissions réellement requises, les limites et les conditions de reprise. |
 | 3. PostgreSQL et découverte | Introduire les migrations, les documents et les vues. Rejouer la découverte sur une copie. | Réconcilier les sélections par cycle et les empreintes des documents et des rapports. |
 | 4. Découplage | Migrer le graphe 1, retirer les imports intergraphes et les chemins partagés, construire chaque image indépendamment. | Ouvrir un dossier avec le graphe 1 arrêté. |
-| 5. Migration des dossiers | Importer lots, pièces, réponses, reçus et états de reprise. Reconstruire explicitement les états historiques incompatibles. | Justifier l’état de chaque dossier et réconcilier les quantités, les preuves et les questions en attente. |
+| 5. Archive des candidatures | Conserver la sauvegarde et la répétition de restauration des anciens dossiers. Préparer une file de candidatures vide pour la production. | Vérifier la restauration isolée et l’absence de dossiers, de lots et de checkpoints hérités dans la nouvelle file. |
 | 6. Parcours complet | Brancher Browsentic, les comptes, Thunderbird et LangSmith. | Réussir les recettes de formulaire inédit, pièces exactes, confirmations inversées, interruption et perte de réponse. |
 | 7. Interface web | Refaire le dashboard, les tableaux et les fiches sur les vues PostgreSQL. | Réconcilier graphiques, listes et dossiers sur le même périmètre et valider le parcours mobile. |
-| 8. Bascule | Répéter sur copie, arrêter la prise de nouveaux dossiers par l’ancien worker, réconcilier les tentatives en vol, sauvegarder et importer le delta. | Démarrer un seul worker de production après réconciliation. |
+| 8. Bascule | Sur la fenêtre autorisée, arrêter l’ancien worker et vérifier qu’il ne peut plus agir. Sauvegarder son état et importer le delta de découverte. Démarrer le graphe 2 avec une file neuve et un répertoire d’état distinct. | Démarrer un seul worker de production avec une file vide. Ouvrir ensuite uniquement les lots explicitement sélectionnés. |
 | 9. Contrôle et retour arrière | Vérifier tableau, traces et premières reprises. Répéter le retour arrière. | Reporter tout nouveau dépôt et son reçu dans le système repris avant d’autoriser celui-ci à soumettre. |
+
+**Décision de bascule du graphe 2.** Les anciens lots, dossiers, réponses, tentatives, reçus, checkpoints et courriels de suivi restent dans l’archive privée. Ils ne sont pas importés dans la file active. La découverte, ses rapports et les versions de CV suivent le plan du graphe 1. La répétition du ticket #21 conserve sa valeur de preuve pour la restauration et le retour arrière.
 
 ## 10. Décisions à challenger
 
