@@ -2,17 +2,33 @@
 
 **Conclusion du 22 novembre 2026, révision de recette `51decc6`, base `63f2166`.** Les quatre incidents demandés ont été rejoués sur le code intégré. Le worker refuse maintenant une mauvaise pièce de même taille, ignore un ancien bouton Telegram, rapproche deux notifications reçues en ordre inverse et retrouve un seul reçu après une panne suivant l’acceptation du portail. Les correctifs couvrent aussi les reprises SQL sur disques indépendants, l’image G2, le texte historique du CV par cycle et les états du suivi web.
 
-**La bascule de production (#22) attend une fenêtre explicitement autorisée.** Le graphe 2 démarre avec une file vide. Les anciens dossiers restent archivés. Les contre-tests du 23 novembre ont vérifié la rédaction authentifiée depuis Docker, le transfert contrôlé par une extension Browsentic construite avec le correctif local, l’envoi Thunderbird à une adresse de test et une trace synthétique dans LangSmith hébergé. Le profil de production doit charger l’extension corrigée. La confirmation d’un compte réel sur un portail de test et le raccordement du traçage du worker de production restent à vérifier.
+**La bascule de production (#22) attend une fenêtre explicitement autorisée.** Le graphe 2 démarre avec une file vide. Les anciens dossiers restent archivés. Les contre-tests du 23 novembre ont vérifié la rédaction authentifiée depuis Docker, le transfert contrôlé par une extension Browsentic construite avec le correctif local, l’envoi Thunderbird à une adresse de test et une trace synthétique dans LangSmith hébergé. Le profil Chrome habituel a ensuite chargé l’extension corrigée. La confirmation d’un compte réel sur un portail de test et le raccordement du traçage du worker de production restent à vérifier.
 
 ## Priorités restantes
 
 | Priorité | Effet | Preuve ou action encore attendue |
 |---|---|---|
 | Avant toute bascule #22 | Les 10 anciens dossiers et 24 opérations historiques restent dans la sauvegarde privée. | Arrêter et sauvegarder l’ancien worker, importer le delta de découverte et vérifier que la nouvelle file est vide avant de démarrer un seul worker. Le contrôle après bascule de #23 reste ouvert. |
-| Avant une transmission de pièces par le profil réel | Le chemin `attach_document` a refusé un mauvais PDF de même taille et confirmé les empreintes des deux bonnes pièces dans Chrome avec l’extension corrigée. | Charger cette version dans le profil destiné au worker, puis vérifier le raccordement sur ce profil. |
+| Avant une transmission de pièces par le profil réel | Le chemin `attach_document` a refusé un mauvais PDF de même taille et confirmé les empreintes des deux bonnes pièces dans Chrome avec l’extension corrigée. | La recette ci-dessous vérifie le profil habituel avec la copie corrigée seule connectée. Le registre du premier lot opérationnel reste à préparer. |
 | Avant d’annoncer une confirmation de compte de bout en bout chez un fournisseur | Le worker sait utiliser les deux marqueurs de recette en loopback. Le chemin hors fixture rapproche une notification et un état déjà confirmé du portail. | Tester une boîte de recette et son fournisseur dans un périmètre autorisé. Identifier le geste humain lorsque la confirmation ne peut pas être automatisée. |
-| Avant d’annoncer un worker complet connecté | Codex authentifié dans Docker a rédigé une lettre personnalisée à partir de données factices. LibreOffice et Poppler ont contrôlé le PDF. Docker a également atteint le MCP de Thunderbird local. | Faire passer un dossier de test complet par le profil opérationnel. |
+| Avant d’annoncer un worker complet connecté | Un dossier factice a traversé la file, Chrome, le reçu SQL, la fiche web et l’attente d’accord sur le suivi. | Vérifier le tour navigateur natif avec un reçu HTTPS et le raccordement des traces du worker opérationnel. |
 | Avant d’utiliser le suivi hébergé | Une trace synthétique avec sous-étape a été relue dans le projet LangSmith configuré. Le collecteur de recette et le test de panne restent validés. | Configurer la destination du worker et vérifier le lien depuis la fiche. |
+
+## Dossier factice sur le profil Chrome habituel
+
+La recette du 23 novembre utilise le graphe 2 figé à `d2b9f88`, un PostgreSQL 17 jetable et un portail HTTP sur loopback. Avant l’ouverture, les compteurs de lots, dossiers et checkpoints valent chacun zéro. La route du tableau ouvre un lot unique. Le rédacteur Codex authentifié génère la lettre d’Atelier Atlas pour le poste « Analyste de données ». LibreOffice la rend en PDF et Poppler contrôle les deux mentions.
+
+Le bridge orientait les nouvelles connexions vers la copie du Chrome Web Store alors que deux extensions étaient connectées. Après désactivation temporaire de la copie standard, le worker vérifie `expectedSha256` et `expectedUrl` avant le transfert. Le pilote publie des références de téléchargement à partir des PDF figés relus dans le dossier. Le chemin `attach_dossier_document` rejette une référence vers un fichier différent de même taille et laisse le champ CV vide. Les deux bonnes empreintes apparaissent dans leurs champs indépendants. Le serveur reçoit une seule soumission et compare les deux pièces octet par octet.
+
+Le reçu est écrit en SQL puis relu sur la fiche dans Chrome avec la même empreinte. La fiche affiche « Suivi à approuver ». Le client Telegram construit l’aperçu, les deux pièces et les deux boutons. Le transport synthétique capture le message et les empreintes des pièces. La revue SQL reste en attente d’accord et le compteur de tentatives d’envoi reste à zéro.
+
+Le pilote navigateur déterministe et le vérificateur de reçu HTTP circonscrivent cette preuve au portail factice. Le tour navigateur Codex natif exige un reçu HTTPS. La recette alimente elle-même le registre des pièces et le test de l’accord s’arrête à sa présentation. Le raccordement LangSmith du worker opérationnel, la confirmation d’un compte sur un portail réel et les contrôles après bascule restent ouverts. Voir [le lanceur et les modalités du test](../jobs/graphe2/tests/recette_dossier/README.md).
+
+La sortie de cette exécution est conservée dans `tmp/recette-dossier-d2b9f88/` sous les noms `preuve.json` et `fiche.html`. La suite du dépôt a donné 48 tests réussis et 4 ignorés. La recette PostgreSQL des lots et la recette de l’image Docker ont réussi.
+
+## Contrôle local avec le PDF fourni
+
+Le PDF privé fourni pour le contrôle a été relu sur deux pages, rendu par Poppler et utilisé comme CV du lot dans la base jetable. Son SHA-256 concorde avec celui de la pièce reçue sur le portail loopback. Le témoin de même taille est synthétique et a été refusé. Le reçu a été vérifié sur la fiche Chrome. Le suivi a atteint « Suivi à approuver » après la reprise de la génération du brouillon. Le second passage, avec des textes déterministes, a confirmé le même trajet. Chaque file jetable contient un reçu pour un dépôt et zéro tentative de courriel. Les copies Browsentic de ces contrôles ont été supprimées et les preuves restent dans le répertoire privé de recette.
 
 ## Rejeux indépendants sur `51decc6`
 
