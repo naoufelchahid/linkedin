@@ -1,13 +1,14 @@
-"""Une réponse SMTP perdue et une correction de pièce sur des transports en mémoire."""
+"""Une réponse Thunderbird perdue après l’approbation d’une pièce modifiée."""
 
 import os
 import tempfile
+from base64 import b64decode
 from pathlib import Path
 from unittest.mock import patch
 
-from linkedin_applications.connectors import Mail
 from linkedin_applications.postgres_queue import PostgresQueue
 from linkedin_applications.runner import Runner
+from linkedin_applications.thunderbird_mail import ThunderbirdMail
 
 
 class Portal:
@@ -33,35 +34,33 @@ class Writer:
 class Mailbox:
     def __init__(self):
         self.messages = []
-        self.visible = False
-        self.queries = 0
+        self.confirm = False
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, *args):
+    async def __aexit__(self, *args):
         pass
 
-    def login(self, *args):
-        pass
+    async def write(self, message):
+        assert message["method"] == "notifications/initialized"
 
-    def send_message(self, message):
-        self.messages.append(message)
-        raise ConnectionError("Réponse SMTP perdue après acceptation")
+    async def request(self, method, params):
+        if method == "initialize":
+            return {}
+        assert method == "tools/call" and params["name"] == "sendMail"
+        self.messages.append(params["arguments"])
+        if self.confirm:
+            return {"structuredContent": {"success": True, "message": "Message sent"}}
+        raise ConnectionError("Réponse Thunderbird perdue après acceptation")
 
-    def select(self, folder, readonly):
-        assert readonly
-        return "OK", []
 
-    def search(self, *args):
-        self.queries += 1
-        return "OK", [b"1 2" if self.visible else b"1"]
-
-    def fetch(self, uid, request):
-        ident = (
-            self.messages[0]["Message-ID"] if uid == b"2" else "<autre@example.invalid>"
-        )
-        return "OK", [(b"header", f"Message-ID: {ident}\r\n\r\n".encode())]
+async def agent_turn(task, schema, tools, call):
+    tool = tools[0]["name"]
+    assert not (await call(tool, {"to": "other@example.invalid"}))["success"]
+    result = await call(tool, {})
+    assert not (await call(tool, {}))["success"]
+    return {"confirmed": result["success"]}
 
 
 with tempfile.TemporaryDirectory() as tmp:
@@ -73,18 +72,10 @@ with tempfile.TemporaryDirectory() as tmp:
     pdf.write_bytes(b"%PDF A")
     writer = Writer(pdf)
     mailbox = Mailbox()
-    mail = Mail(
-        {
-            "APPLICATIONS_SMTP_HOST": "fixture.invalid",
-            "APPLICATIONS_IMAP_HOST": "fixture.invalid",
-            "APPLICATIONS_SMTP_USER": "fixture@example.invalid",
-            "APPLICATIONS_SMTP_PASSWORD": "fixture",
-            "APPLICATIONS_IMAP_SENT": "Sent",
-        }
-    )
+    mail = ThunderbirdMail(root, ["fixture"], "fixture@example.invalid")
     with (
-        patch("smtplib.SMTP_SSL", return_value=mailbox),
-        patch("imaplib.IMAP4_SSL", return_value=mailbox),
+        patch.object(mail.agent, "turn", side_effect=agent_turn),
+        patch("linkedin_applications.thunderbird_mail.Session", return_value=mailbox),
     ):
         runner = Runner(q, Portal(), writer, mail)
         state = runner.run(item)
@@ -107,30 +98,29 @@ with tempfile.TemporaryDirectory() as tmp:
             runner.run(item, {"id": first["id"], "choice": "approve"})["question"]
             == second
         )
-        try:
-            runner.run(item, {"id": second["id"], "choice": "approve"})
-        except ConnectionError:
-            pass
-        else:
-            raise AssertionError("Panne SMTP attendue")
+        state = runner.run(item, {"id": second["id"], "choice": "approve"})
+        assert state["mail_status"] == "uncertain"
         runner.close()
-        assert len(mailbox.messages) == 1
-        (part,) = mailbox.messages[0].iter_attachments()
-        assert (
-            part.get_payload(decode=True) == b"%PDF B"
-            and part.get_filename() == "lettre.pdf"
-        )
+        (sent,) = mailbox.messages
+        assert sent["from"] == "fixture@example.invalid"
+        assert sent["to"] == "local@example.invalid"
+        assert sent["subject"] == "Suivi" and sent["body"] == "Texte synthétique"
+        assert sent["skipReview"] and not sent["includeSignature"]
+        (part,) = sent["attachments"]
+        assert b64decode(part["base64"]) == b"%PDF B" and part["name"] == "lettre.pdf"
+
         runner = Runner(q, Portal(), writer, mail)
         state = runner.run(item)
         assert state["mail_status"] == "uncertain"
-        mailbox.visible = True
         state = runner.reconcile_mail(state)
-        assert state["mail_status"] == "sent" and len(mailbox.messages) == 1
-        assert mailbox.queries == 2
+        assert state["mail_status"] == "uncertain" and len(mailbox.messages) == 1
         ledger = q.followup.attempt(item["dossier"])
-        assert ledger["receipt"]["message_id"] == mailbox.messages[0]["Message-ID"]
-        assert ledger["version"] == second["version"]
+        assert ledger["receipt"] is None and ledger["version"] == second["version"]
         runner.close()
-print(
-    "Nouvel accord après correction, réponse SMTP perdue et reçu IMAP exact vérifiés."
-)
+
+        mailbox.confirm = True
+        receipt = mail.send(writer.draft({}), "fixture-confirmation")
+        assert receipt == {"transport": "thunderbird", "status": "sent"}
+        assert len(mailbox.messages) == 2
+
+print("Version approuvée, agent, identité Thunderbird et absence de réenvoi vérifiés.")

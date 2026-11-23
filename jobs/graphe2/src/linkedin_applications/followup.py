@@ -1,4 +1,4 @@
-"""Version présentée au candidat et tentative SMTP unique par dépôt confirmé."""
+"""Version présentée au candidat et tentative Thunderbird unique par dépôt confirmé."""
 
 import hashlib
 import json

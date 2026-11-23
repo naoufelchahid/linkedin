@@ -15,11 +15,12 @@ from uuid import UUID
 from dotenv import dotenv_values
 
 from .browser import Browsentic
-from .connectors import ACTIONS, RESPONSE_ACTIONS, Mail, Telegram, private_write
+from .connectors import ACTIONS, RESPONSE_ACTIONS, Telegram, private_write
 from .followup import frozen_draft
 from .legacy_selection import retained_rows
 from .runner import Runner, config
 from .storage import Queue, database, selected
+from .thunderbird_mail import ThunderbirdMail
 from .writer import Writer
 
 
@@ -62,7 +63,9 @@ class Worker:
                 msg = self.telegram.text(text, reply_markup={"force_reply": True})
             else:
                 if q["kind"] in {"mail", "recipe_mail"}:
-                    with frozen_draft(self.runner.workflow.local_draft(dossier)) as draft:
+                    with frozen_draft(
+                        self.runner.workflow.local_draft(dossier)
+                    ) as draft:
                         if self.runner.workflow.draft_version(draft) != q["version"]:
                             self.runner.run(dossier, {"id": ident, "choice": "refresh"})
                             continue
@@ -272,9 +275,8 @@ def services(queue, env):
         browser.accounts = PortalAccounts(
             queue, env["APPLICATIONS_ACCOUNT_KEY_FILE"], policy.get("account_pages", [])
         )
-    if documents and env.get("APPLICATIONS_THUNDERBIRD_COMMAND"):
-        from .confirmations import EmailConfirmations
-
+    thunderbird = None
+    if env.get("APPLICATIONS_THUNDERBIRD_COMMAND"):
         thunderbird = json.loads(env["APPLICATIONS_THUNDERBIRD_COMMAND"])
         if (
             not isinstance(thunderbird, list)
@@ -282,6 +284,9 @@ def services(queue, env):
             or not all(isinstance(arg, str) for arg in thunderbird)
         ):
             raise ValueError("applications_thunderbird_command_invalid")
+    if documents and thunderbird:
+        from .confirmations import EmailConfirmations
+
         browser.confirmations = EmailConfirmations(
             queue,
             browser,
@@ -298,7 +303,9 @@ def services(queue, env):
             env.get("APPLICATIONS_HUMANIZER"),
             documents=documents,
         ),
-        Mail(env),
+        ThunderbirdMail(
+            queue.data, thunderbird, env.get("APPLICATIONS_THUNDERBIRD_FROM")
+        ),
         trace_port=env.get("APPLICATIONS_TRACE_LOCAL_PORT"),
     ), Telegram(env["APPLICATIONS_TELEGRAM_TOKEN"], env["APPLICATIONS_TELEGRAM_CHAT"])
 
@@ -386,9 +393,8 @@ def dispatch(args):
         if args.mode == "production" and any(
             not env.get(key)
             for key in (
-                "APPLICATIONS_SMTP_HOST",
-                "APPLICATIONS_SMTP_USER",
-                "APPLICATIONS_SMTP_PASSWORD",
+                "APPLICATIONS_THUNDERBIRD_COMMAND",
+                "APPLICATIONS_THUNDERBIRD_FROM",
                 "APPLICATIONS_HUMANIZER",
             )
         ):

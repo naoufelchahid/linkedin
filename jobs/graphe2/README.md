@@ -13,7 +13,7 @@ uv sync --locked
 
 Le tableau de bord appelle par défaut `jobs/graphe2/.venv/bin/linkedin-applications` et utilise `jobs/graphe2/var`. Les variables `APPLICATIONS_CLI` et `APPLICATIONS_STATE` permettent de désigner un autre exécutable et un autre répertoire d’état dans l’environnement du tableau de bord.
 
-Préparer un répertoire privé `var` et copier `.env.example` dans `var/.env`. Utiliser Browsentic dans le profil visible déjà connecté. Le mode MCP de Browsentic s’attache au navigateur existant. Il ne lance aucun navigateur headless. Le rédacteur utilise Codex App Server et requiert LibreOffice et Poppler pour produire et contrôler la lettre. La recette d’un mail requiert le fichier Humanizer. La production requiert en plus la configuration SMTP. Pour la vérification IMAP, choisir le dossier dans lequel le fournisseur conserve effectivement les messages envoyés.
+Préparer un répertoire privé `var` et copier `.env.example` dans `var/.env`. Utiliser Browsentic dans le profil visible déjà connecté. Le mode MCP de Browsentic s’attache au navigateur existant. Il ne lance aucun navigateur headless. Le rédacteur utilise Codex App Server et requiert LibreOffice et Poppler pour produire et contrôler la lettre. La recette d’un mail requiert le fichier Humanizer. Pour l’envoi, configurer la commande MCP Thunderbird et l’adresse exacte de l’identité déjà connectée dans Thunderbird.
 
 Relancer un worker arrêté avec la même configuration et le même répertoire :
 
@@ -142,7 +142,11 @@ Pour un obstacle avant transmission, « Vérifier le correctif » déclenche une
 
 ### Accord et rapprochement du mail de suivi
 
-Après le reçu SQL du dépôt, `applications.followup_reviews` conserve le destinataire, l’objet, le corps, les noms et les empreintes des pièces présentés pour chaque demande. Le clic valide la dernière demande et sa version. Le worker contrôle les octets figés avant de réserver l’unique tentative dans `applications.followup_sends`. En cas de réponse SMTP perdue, le worker recherche le Message-ID de cette tentative dans le dossier configuré des messages envoyés. Une preuve manquante maintient le suivi à vérifier. Le mode recette habituel affiche uniquement l’aperçu.
+Après le reçu SQL du dépôt, `applications.followup_reviews` conserve le destinataire, l’objet, le corps, les noms et les empreintes des pièces présentés. Le clic Telegram valide cette version. Le worker vérifie les pièces avant de réserver l’unique tentative dans `applications.followup_sends`. Un tour du rédacteur appelle un outil à usage unique qui transmet le brouillon approuvé à `sendMail` via le MCP Thunderbird. Le modèle ne peut modifier aucun champ ni accéder aux pièces. Le mode de test habituel affiche l’aperçu.
+
+Renseigner `APPLICATIONS_THUNDERBIRD_COMMAND` et `APPLICATIONS_THUNDERBIRD_FROM`. Le mode demandé est l’envoi direct, après validation Telegram. Thunderbird MCP le refuse tant que son option **Block skipReview** est active. Le worker ne change pas cette option. Thunderbird MCP 0.9.2 ne fournit pas le Message-ID de l’envoi direct. Une réponse perdue ou un envoi non confirmé laisse le suivi à vérifier sans renvoyer le message.
+
+Sur l’hôte, le bridge stdio du dépôt `TKasperczyk/thunderbird-mcp` peut être enregistré par `codex mcp add thunderbird -- /chemin/vers/node /chemin/vers/thunderbird-mcp/mcp-bridge.cjs`. Pour Docker, exposer cette même commande via un socket Unix privé comme pour Browsentic, puis indiquer la commande `socat` vers ce socket dans `APPLICATIONS_THUNDERBIRD_COMMAND`. Les pièces voyagent dans la requête MCP locale, sans montage de leurs chemins dans Thunderbird.
 
 ### Checkpoints du worker PostgreSQL
 
