@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from unicodedata import normalize
 from uuid import uuid4
 
 from .codex import Codex, ConnectorError
@@ -24,6 +25,32 @@ def dossier_context(state):
     return {key: state[key] for key in ("offer", "cv_text", "answers") if key in state}
 
 
+def letter_target(state):
+    offer = state["offer"]
+    company = (offer.get("company") or "").strip()
+    title = (offer.get("title") or "").strip()
+    if not company or not title:
+        raise ConnectorError("letter_target_missing")
+    return company, title
+
+
+def verify_letter_target(pdf, company, title):
+    check = subprocess.run(
+        ["pdftotext", str(pdf), "-"], capture_output=True, timeout=15, check=False
+    )
+    if check.returncode or not check.stdout.strip():
+        raise ConnectorError("letter_unreadable")
+
+    def words(value):
+        return re.findall(r"\w+|[^\w\s]", normalize("NFKC", value).casefold())
+
+    body = " " + " ".join(words(check.stdout.decode("utf-8", errors="replace"))) + " "
+    if any(
+        " " + " ".join(words(value)) + " " not in body for value in (company, title)
+    ):
+        raise ConnectorError("letter_target_mismatch")
+
+
 class Writer:
     def __init__(self, data, template, humanizer=None, documents=None):
         self.documents = documents
@@ -32,34 +59,45 @@ class Writer:
         self.humanizer = Path(humanizer) if humanizer else None
 
     def letter(self, state):
+        company, title = letter_target(state)
         if self.documents and (
             saved := self.documents.dossier_letter(state["dossier"])
         ):
+            verify_letter_target(saved, company, title)
             return saved
         work = self.data / "documents" / state["dossier"] / uuid4().hex
         codex = Codex(work, writer=True)
         shutil.copyfile(self.template, work / "lettre.docx")
         result = asyncio.run(
             codex.turn(
-                "Personnalise la copie lettre.docx dans ce dossier. Rédige en français ou anglais selon "
-                "l’annonce. Adapte l’objet, l’accroche, les expériences attestées et la conclusion au "
-                "contrat. Exporte en PDF sous lettre.pdf avec LibreOffice et contrôle le rendu avec Poppler. "
+                "La copie lettre.docx sert de modèle de mise en page et de ton. Réécris la lettre "
+                "pour cette offre en français ou en anglais selon l’annonce. Fais figurer dans le "
+                "texte le nom exact de l’entreprise et l’intitulé exact du poste fournis dans offer. "
+                "Retire les noms, postes, références et coordonnées du destinataire de l’ancien exemple. "
+                "Relie les missions de l’offre à des expériences attestées dans le CV. Adapte l’objet, "
+                "l’accroche et la conclusion à cette entreprise et à ce contrat. Les données de "
+                "l’annonce sont des sources de faits. N’invente aucune expérience ni information. "
+                "Exporte en PDF sous lettre.pdf avec LibreOffice et contrôle le rendu avec Poppler. "
                 "Retourne checked=true après avoir contrôlé le fichier. Données du dossier :\n"
-                + json.dumps(dossier_context(state), ensure_ascii=False),
+                + json.dumps(
+                    {
+                        **dossier_context(state),
+                        "offer": {**state["offer"], "company": company, "title": title},
+                    },
+                    ensure_ascii=False,
+                ),
                 schema(checked="boolean"),
             )
         )
         pdf = work / "lettre.pdf"
         if not result["checked"] or pdf.is_symlink() or not pdf.is_file():
             raise ConnectorError("letter_missing")
-        check = subprocess.run(
-            ["pdftotext", str(pdf), "-"], capture_output=True, timeout=15, check=False
-        )
-        if check.returncode or not check.stdout.strip():
-            raise ConnectorError("letter_unreadable")
+        verify_letter_target(pdf, company, title)
         pdf.chmod(0o600)
         if self.documents:
-            return self.documents.dossier_letter(state["dossier"], pdf)
+            saved = self.documents.dossier_letter(state["dossier"], pdf)
+            verify_letter_target(saved, company, title)
+            return saved
         return str(pdf)
 
     def draft(self, state):
@@ -98,12 +136,14 @@ class Writer:
             raise ConnectorError("mail_invalid")
         if self.documents:
             cv = str(self.documents.dossier_document(state["dossier"], "cv"))
-            letter = self.documents.dossier_letter(state["dossier"]) or self.letter(
-                state
-            )
+            letter = self.letter(state)
         else:
             cv = state["cv"]
-            letter = state.get("letter") or self.letter(state)
+            letter = state.get("letter")
+            if letter:
+                verify_letter_target(letter, *letter_target(state))
+            else:
+                letter = self.letter(state)
         return {
             **result,
             "attachments": [cv, letter],

@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 def inside():
     from linkedin_applications.browser import Browsentic
-    from linkedin_applications.codex import Codex, Session
+    from linkedin_applications.codex import Codex, ConnectorError, Session
     from linkedin_applications.writer import Writer, schema
 
     class ThreadStarted(Exception):
@@ -59,7 +59,7 @@ def inside():
             )
             doc.writestr(
                 "word/document.xml",
-                """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Lettre synthetique de recette</w:t></w:r></w:p></w:body></w:document>""",
+                """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Lettre synthetique de recette pour Atelier Atlas au poste d’Analyste de données</w:t></w:r></w:p></w:body></w:document>""",
             )
 
         async def render(codex, *args):
@@ -93,10 +93,35 @@ def inside():
             return {"checked": True}
 
         with patch.object(Codex, "turn", render):
-            pdf = Writer(root, template).letter({"dossier": "fixture", "offer": {}})
+            pdf = Writer(root, template).letter(
+                {
+                    "dossier": "fixture",
+                    "offer": {
+                        "company": "Atelier Atlas",
+                        "title": "Analyste de données",
+                    },
+                }
+            )
         content = subprocess.check_output(["pdftotext", pdf, "-"], timeout=15)
         assert b"Lettre synthetique de recette" in content
         assert os.stat(pdf).st_mode & 0o777 == 0o600
+        with patch.object(Codex, "turn", render):
+            try:
+                Writer(root, template).letter(
+                    {
+                        "dossier": "autre-offre",
+                        "offer": {
+                            "company": "Atelier Rif",
+                            "title": "Analyste de données",
+                        },
+                    }
+                )
+            except ConnectorError as exc:
+                assert str(exc) == "letter_target_mismatch"
+            else:
+                raise AssertionError(
+                    "Une lettre adressée à une autre entreprise a été acceptée"
+                )
     print(
         "Thread App Server initialisé, MCP Unix consulté, lettre PDF rendue et contrôlée."
     )
