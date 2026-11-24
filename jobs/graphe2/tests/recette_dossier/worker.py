@@ -199,7 +199,7 @@ def main():
     telegram_fixture = TelegramFixture()
     worker = Worker(queue, runner, telegram)
 
-    async def turn(task, schema, tools, call, *, mcp):
+    async def turn(task, schema, tools, call, *, mcp, system_prompt):
         assert "Données du dossier" in task and mcp[0] == browser.command
         try:
             return await run_browser(browser, queue, schema, call)

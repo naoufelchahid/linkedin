@@ -16,7 +16,7 @@ Les refus sont affichés sur la sortie d’erreur. Un code de sortie 1 signale u
 
 Avec Browsentic 0.9.2 et Chrome for Testing 158.0.8127.18, le worker UID 1000 a ouvert deux onglets distincts et vérifié l’URL de l’onglet actif. Le texte propre à l’iframe est lisible dans la capture MCP. La lecture structurée via `page_switchFrame` renvoie `UNSUPPORTED`.
 
-La capture du PDF par `page_captureDownload` renvoie `BLOCKED`. Browsentic réserve l’approbation de cette action au panneau latéral. Le MCP externe n’a donc pas obtenu de référence pour `page_attachFile`. Le contrôle SHA-256 de la pièce jointe reste à valider.
+À cette observation du 22 novembre, la capture du PDF par `page_captureDownload` renvoyait `BLOCKED` et le contrôle SHA-256 de la pièce jointe restait à valider. Les recettes décrites dans [Contrôle du fichier avant transfert](#contrôle-du-fichier-avant-transfert) consignent ensuite le transfert vérifié avec l’extension corrigée; elles ne valident pas encore que le rôle CV/lettre est lié automatiquement au bon champ du formulaire.
 
 Un arrêt de Chrome immédiatement après la réception du cookie a donné « Session absente ». La recette attend donc que Chrome ait écrit la ligne du cookie persistant dans le profil synthétique. Après fermeture de Chrome et du premier worker, le second worker a relu « Session de recette retrouvee » dans le nouveau Chrome. Le Bridge est resté en marche.
 

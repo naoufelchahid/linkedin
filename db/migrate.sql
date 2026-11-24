@@ -96,6 +96,16 @@ SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 26) A
     \ir migrations/026_runtime_g1.sql
     INSERT INTO discovery.schema_migrations (version) VALUES (26);
 \endif
+SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 27) AS pending \gset
+\if :pending
+    \ir migrations/027_email_activation_claim.sql
+    INSERT INTO discovery.schema_migrations (version) VALUES (27);
+\endif
+SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 28) AS pending \gset
+\if :pending
+    \ir migrations/028_portal_registration_dispatch.sql
+    INSERT INTO discovery.schema_migrations (version) VALUES (28);
+\endif
 SELECT NOT EXISTS (SELECT FROM discovery.schema_migrations WHERE version = 105) AS pending \gset
 \if :pending
     \ir migrations/105_frozen_cycle_text.sql

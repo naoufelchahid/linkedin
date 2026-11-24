@@ -1,5 +1,7 @@
 # Conception du graphe 2
 
+Ce document conserve les choix métier cibles. Pour distinguer ces choix du comportement effectivement livré, consulter l’[état de l’implémentation](../README.md#état-du-code) et les écarts listés dans la [spécification](./specification.md).
+
 ## Choix du candidat
 
 Les règles de priorité après correction humaine, de dépôt commun à plusieurs annonces, de conservation des pièces, de décompte quotidien et de reprise des envois sont précisées dans la [spécification du graphe 2](./specification.md#règles-de-dépôt-et-de-reprise-validées).
@@ -12,13 +14,13 @@ Les règles de priorité après correction humaine, de dépôt commun à plusieu
 - Sur Easy Apply, Codex doit saisir directement les réponses dans les champs via Browsentic, dans la session LinkedIn visible du candidat. Le candidat souhaite observer la saisie et accepte le risque de restriction de son compte. La compatibilité de bout en bout reste à vérifier.
 - Sur les sites employeurs, Codex doit également renseigner le formulaire dans le navigateur.
 - Pour le pilote, si un CAPTCHA ou un code de connexion est demandé, mettre le dossier en attente et indiquer au candidat sur Telegram quel portail ouvrir. Le candidat effectue la vérification dans la session visible du navigateur. Reprendre le formulaire après la vérification et poursuivre les autres offres pendant l’attente.
-- Réutiliser la session du portail employeur lorsqu’elle est disponible. Si la création d’un compte est indispensable, demander l’accord du candidat via Telegram une seule fois pour ce portail. Conserver sa décision avec le portail concerné et la consulter lors des candidatures suivantes.
+- Réutiliser la session du portail employeur lorsqu’elle est disponible. L’accord permanent du candidat couvre la création du compte nécessaire à la candidature ainsi que l’acceptation de ses conditions obligatoires de service et de confidentialité. Une exclusion explicite enregistrée pour un portail reste prioritaire; les consentements facultatifs restent décochés. Conserver la décision avec le portail concerné et la consulter lors des candidatures suivantes.
 - Utiliser le CV et les réponses confirmées. En cas d’information manquante, interroger le candidat sur Telegram. Pour chaque réponse de formulaire, proposer « Envoyer et garder en mémoire » et « Envoyer sans garder en mémoire ». Seul le premier choix autorise la réutilisation sur un autre dossier et l’écriture dans le Markdown privé.
 - Lorsqu’une candidature attend une réponse sur Telegram, mettre uniquement cette offre en attente et poursuivre le lot. À réception de la réponse, reprendre la candidature concernée là où elle s’était arrêtée. Si les 40 dépôts du jour sont déjà atteints, conserver la réponse et reporter le dépôt au lendemain.
 - Pour un prérequis obligatoire, donner la réponse exacte et poursuivre si le formulaire l’accepte. Si le prérequis empêche le dépôt, enregistrer le motif, garder la candidature non soumise et passer à l’offre suivante. Solliciter le candidat sur Telegram seulement si sa réponse est inconnue.
 - Rédiger dans la langue de l’offre, français ou anglais. Lorsque le formulaire demande une lettre, la produire en PDF à partir du canevas et des informations confirmées.
 - Après un dépôt confirmé, adresser au recruteur un mail pour appuyer la candidature.
-- Si le navigateur s’interrompt après le clic d’envoi et avant la confirmation, enregistrer « envoi à vérifier » et consulter le suivi du portail. Si le dépôt de cette offre y est confirmé, enregistrer « soumise » et passer à l’étape du mail. Si le doute persiste, demander au candidat sur Telegram avant toute nouvelle tentative et poursuivre le reste du lot.
+- Si le navigateur s’interrompt après le clic d’envoi et avant la confirmation, enregistrer « envoi à vérifier » et consulter le suivi du portail en lecture seule. Si le dépôt de cette offre y est confirmé, enregistrer « soumise » et passer à l’étape du mail. Si le doute persiste, ne pas relancer automatiquement le dépôt; garder ce dossier à vérifier et poursuivre le reste du lot.
 - Utiliser l’adresse de recrutement indiquée dans l’annonce. Si elle manque, marquer l’adresse « non disponible », sans recherche complémentaire. La candidature conserve son statut « soumise » et le lot continue sans envoi de mail pour cette offre.
 
 ## Mail au recruteur après dépôt

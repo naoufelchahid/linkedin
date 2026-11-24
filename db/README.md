@@ -40,6 +40,10 @@ La recette `db/tests/apify_replay.sh` compare les huit colonnes à la sélection
 
 Les tables `applications.submission_attempts` et `applications.submission_receipts` relient le dossier et la génération du tour aux versions de l’annonce, du CV et de la lettre. Le statut `transmitting` sans reçu impose une vérification après interruption. L’expiration du bail interdit les écritures du tour et maintient son exclusivité. Le worker peut libérer la tentative lorsque le tour se termine avant transmission. Une preuve positive relue sur le portail peut confirmer une tentative expirée. La transaction de confirmation conserve un reçu par dossier avant le checkpoint LangGraph. La recette se lance avec `db/tests/application_lots.sh`.
 
+### Comptes et activation du graphe 2
+
+Les migrations `027_email_activation_claim.sql` et `028_portal_registration_dispatch.sql`, chargées par `db/migrate.sql`, ajoutent à `applications.email_challenges` une empreinte unique de message d’activation et à `applications.portal_accounts` l’horodatage `registration_dispatched_at`. Elles doivent être appliquées avant de déployer la version actuelle de l’agent de compte G2. L’horodatage est aujourd’hui pris lors de la réservation avant l’envoi du formulaire; une coupure à cet endroit peut donc empêcher une reprise de création. Cette limite opérationnelle est suivie dans le [README du graphe 2](../jobs/graphe2/README.md#état-du-code).
+
 ## Répétition de migration et retour arrière
 
 Depuis la racine, fournir au lanceur le répertoire du bundle déjà restauré par #1. Le lanceur utilise l’environnement verrouillé G2 et ajoute les sources G1 à son chemin d’importation. Il crée un PostgreSQL privé sans interface réseau, avec un socket dans un répertoire temporaire. Les fichiers de la référence et de la copie sont ouverts en lecture seule.

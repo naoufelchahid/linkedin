@@ -1,0 +1,4 @@
+{
+  "dependencies": ["."],
+  "graphs": {"graphe2": "linkedin_applications.studio:graph"}
+}

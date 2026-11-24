@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
+from .codex import ConnectorError
 from .followup import frozen_draft, manifest, version
 from .obstacles import describe
 from .telemetry import AttemptTrace
@@ -38,6 +39,11 @@ class State(TypedDict, total=False):
     evidence: dict | None
     planned_action: dict | None
     browser_tab: int
+    account_result: dict | None
+    account_operation: str
+    account_scope: str
+    account_retry_at: str
+    writer_result: dict
     mail_review: str
     mail_approval: str
     due: str
@@ -125,6 +131,37 @@ class Workflow:
                 "planned_action": action,
                 "next_node": "prepare_submission",
             }
+        if kind == "account_required":
+            operation = result.get("account_operation", "login")
+            scope = result.get("scope", "")
+            completed = (state.get("account_result") or {}).get("status") == "success"
+            first_login = (
+                state.get("account_operation") == "registration"
+                and operation == "login"
+                and scope == state.get("account_scope")
+            )
+            if completed and not first_login:
+                return {
+                    **tab,
+                    "status": "blocked",
+                    "reason": "account_not_recognized_after_success",
+                    "next_node": END,
+                }
+            if state["mode"] == "production" and tab.get("browser_tab"):
+                return {
+                    **tab,
+                    "status": "preparing",
+                    "next_node": "agent_compte",
+                    "account_operation": operation,
+                    "account_scope": scope,
+                    "account_result": None,
+                }
+            return {
+                **tab,
+                "status": "blocked",
+                "reason": "account_creation_requires_production",
+                "next_node": END,
+            }
         if kind == "account_confirmation":
             confirmations = getattr(self.browser, "confirmations", None)
             if confirmations and confirmations.begin(
@@ -157,9 +194,55 @@ class Workflow:
             "next_node": END,
         }
 
+    def agent_compte(self, state):
+        result = self.browser.run_account(state, self.memory.read(state))
+        tab = (
+            {"browser_tab": result["browser_tab"]} if result.get("browser_tab") else {}
+        )
+        if result["status"] == "success":
+            return {
+                **tab,
+                "account_result": result,
+                "status": "preparing",
+                "next_node": "fill",
+            }
+        if result["cause"] == "confirmation_pending" and self.browser.confirmations:
+            return {
+                **tab,
+                "account_result": result,
+                "status": "waiting_account_agent",
+                "account_retry_at": (self.now() + timedelta(seconds=30)).isoformat(),
+                "next_node": END,
+            }
+        return {
+            **tab,
+            "account_result": result,
+            "status": "blocked",
+            "reason": result["cause"],
+            "next_node": END,
+        }
+
     def letter(self, state):
-        path = self.writer.letter(state)
-        return {"letter": path, "letter_hash": fingerprint(path), "next_node": "fill"}
+        try:
+            path = self.writer.letter(state)
+        except (ConnectorError, OSError, TimeoutError) as exc:
+            return self.writer_failure(exc)
+        return {
+            "letter": path,
+            "letter_hash": fingerprint(path),
+            "writer_result": {"status": "success", "cause": "letter_ready"},
+            "next_node": "fill",
+        }
+
+    @staticmethod
+    def writer_failure(exc):
+        cause = str(exc) if isinstance(exc, ConnectorError) else "writer_io_failed"
+        return {
+            "writer_result": {"status": "failure", "cause": cause},
+            "reason": cause,
+            "status": "blocked",
+            "next_node": END,
+        }
 
     def wait(self, state):
         question = state["question"]
@@ -313,6 +396,9 @@ class Workflow:
 
     def transmit(self, state):
         attempt = state["submission"]
+        if "prepared" in attempt:
+            # Les anciennes tentatives à bouton planifié passent par la réconciliation.
+            return self.verify(state)
         if attempt.get("native"):
             result = self.browser.run_form(state, self.memory.read(state))
             tab = (
@@ -355,7 +441,7 @@ class Workflow:
                 "submitted",
             }:
                 return {**tab, **self.verify({**state, **tab})}
-            update = {"submission": None, **self.form_result(state, result)}
+            update = {"submission": None, **tab, **self.form_result(state, result)}
             if self.submissions and not self.submissions.finish(state, outcome=update):
                 return self.verify(state)
             return update
@@ -436,12 +522,22 @@ class Workflow:
                 },
                 "next_node": "send_mail",
             }
-        draft = self.writer.draft(state)
+        try:
+            draft = self.writer.draft(state)
+        except (ConnectorError, OSError, TimeoutError) as exc:
+            failure = self.writer_failure(exc)
+            return {**failure, "status": state["status"], "mail_status": "draft_failed"}
         if not draft:
-            return {"mail_status": "unavailable", "next_node": END}
+            return {
+                "writer_result": {"status": "success", "cause": "mail_unavailable"},
+                "mail_status": "unavailable",
+                "next_node": END,
+            }
+        written = {"status": "success", "cause": "draft_ready"}
         if state["mode"] == "recipe":
             return {
                 "draft": draft,
+                "writer_result": written,
                 **self.wait_for(
                     "recipe_mail",
                     text=draft["subject"],
@@ -456,6 +552,7 @@ class Workflow:
             self.followup.present(state["dossier"], review["question"]["id"], data)
         return {
             "draft": draft,
+            "writer_result": written,
             "mail_status": "waiting",
             **review,
             "status": "submitted",
@@ -512,25 +609,54 @@ class Workflow:
         }
 
 
-def build(workflow, checkpointer):
+def build(workflow, checkpointer, *, trace=None):
     graph = StateGraph(State)
-    nodes = (
-        "fill",
-        "letter",
-        "wait",
-        "prepare_submission",
-        "submission",
-        "draft",
-        "prepare_mail",
-        "send_mail",
-    )
-    for node in nodes:
-        graph.add_node(node, getattr(workflow, node))
-    destinations = [*nodes, END]
+    # Les identifiants de ces étapes sont aussi présents dans les checkpoints.
+    transitions = {
+        "fill": [
+            "agent_compte",
+            "letter",
+            "wait",
+            "prepare_submission",
+            "submission",
+            "draft",
+            END,
+        ],
+        "agent_compte": ["fill", END],
+        "letter": ["fill", END],
+        "wait": ["wait", "fill", "draft", "prepare_mail", END],
+        "prepare_submission": ["submission", END],
+        "submission": [
+            "agent_compte",
+            "letter",
+            "wait",
+            "prepare_submission",
+            "draft",
+            END,
+        ],
+        "draft": ["wait", "send_mail", END],
+        "prepare_mail": ["draft", "send_mail"],
+        "send_mail": [END],
+    }
+    agents = {
+        "fill": "navigateur (recette)",
+        "submission": "navigateur",
+        "agent_compte": "compte",
+        "letter": "rédacteur",
+        "draft": "rédacteur",
+    }
+    for node in transitions:
+        function = getattr(workflow, node)
+        graph.add_node(
+            node,
+            trace.node(node, function) if trace else function,
+            metadata={"agent": agents[node]} if node in agents else None,
+        )
 
     def route(state):
         return state.get("next_node", "fill")
 
-    for node in (*nodes, START):
+    graph.add_conditional_edges(START, route, [*transitions, END])
+    for node, destinations in transitions.items():
         graph.add_conditional_edges(node, route, destinations)
     return graph.compile(checkpointer=checkpointer, name="graphe2.applications")

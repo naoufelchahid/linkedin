@@ -2,7 +2,7 @@
 
 import sqlite3
 from contextlib import ExitStack, closing, nullcontext
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -18,7 +18,17 @@ def config(dossier):
 
 
 class Runner:
-    def __init__(self, queue, browser, writer, mail, now=None, *, trace_port=None):
+    def __init__(
+        self,
+        queue,
+        browser,
+        writer,
+        mail,
+        now=None,
+        *,
+        trace_port=None,
+        graph_trace=None,
+    ):
         self.resources = ExitStack()
         if hasattr(queue, "checkpointer"):
             saver = self.resources.enter_context(queue.checkpointer())
@@ -41,11 +51,19 @@ class Runner:
         )
         self.workflow.submissions = getattr(queue, "submissions", None)
         self.workflow.followup = getattr(queue, "followup", None)
-        self.graph = build(self.workflow, saver)
+        self.graph_trace = graph_trace
+        self.graph = build(self.workflow, saver, trace=graph_trace)
 
     def close(self):
         self.workflow.trace.close()
+        if self.graph_trace:
+            self.graph_trace.close()
         self.resources.close()
+
+    def invoke(self, value, cfg, **kwargs):
+        if self.graph_trace:
+            return self.graph_trace.invoke(self.graph, value, cfg, **kwargs)
+        return self.graph.invoke(value, cfg, **kwargs)
 
     def snapshots(self):
         for dossier in dict.fromkeys(item["dossier"] for item in self.queue.items()):
@@ -100,7 +118,7 @@ class Runner:
             cv = Path(item["cv"])
             if fingerprint(cv) != item["cv_hash"]:
                 raise ValueError("cv_snapshot_integrity")
-            return self.graph.invoke(item, cfg, durability="sync")
+            return self.invoke(item, cfg, durability="sync")
         if not current.get("submission") and self.destination_changed(current):
             question = current.get("question") or {}
             if (
@@ -109,7 +127,7 @@ class Runner:
                 and reply
                 and reply["id"] == question["id"]
             ):
-                return self.graph.invoke(
+                return self.invoke(
                     Command(resume={**reply, "version_conflict": True}),
                     cfg,
                     durability="sync",
@@ -121,7 +139,7 @@ class Runner:
                 and item["mode"] == "production"
                 and not snap.next
             ):
-                return self.graph.invoke(
+                return self.invoke(
                     {
                         "mode": "production",
                         "status": "preparing",
@@ -136,22 +154,31 @@ class Runner:
         if snap.interrupts:
             question = current["question"]
             if reply and reply["id"] == question["id"]:
-                return self.graph.invoke(Command(resume=reply), cfg, durability="sync")
+                return self.invoke(Command(resume=reply), cfg, durability="sync")
+            return current
+        if current.get("status") == "waiting_account_agent" and not snap.next:
+            if (
+                datetime.fromisoformat(current["account_retry_at"])
+                <= self.workflow.now()
+            ):
+                return self.invoke(
+                    {"next_node": "agent_compte"}, cfg, durability="sync"
+                )
             return current
         if current.get("status") == "waiting_account_confirmation" and not snap.next:
             confirmations = getattr(self.workflow.browser, "confirmations", None)
             if confirmations and confirmations.poll(current["dossier"]):
-                return self.graph.invoke(
+                return self.invoke(
                     {"status": "preparing", "next_node": "fill"}, cfg, durability="sync"
                 )
             return current
         if current.get("status") == "version_conflict" and not snap.next:
-            return self.graph.invoke({"next_node": "fill"}, cfg, durability="sync")
+            return self.invoke({"next_node": "fill"}, cfg, durability="sync")
         if snap.next:
-            return self.graph.invoke(None, cfg, durability="sync")
+            return self.invoke(None, cfg, durability="sync")
         today = self.workflow.now().astimezone(ZONE).date().isoformat()
         if current.get("status") == "deferred" and current["due"] <= today:
-            return self.graph.invoke({"next_node": "fill"}, cfg, durability="sync")
+            return self.invoke({"next_node": "fill"}, cfg, durability="sync")
         return current
 
     def destination_changed(self, state):
@@ -172,7 +199,7 @@ class Runner:
         ):
             if not acquired:
                 return self.busy(state)
-            return self.graph.invoke(
+            return self.invoke(
                 {"next_node": "send_mail"}, config(state["dossier"]), durability="sync"
             )
 
@@ -201,7 +228,7 @@ class Runner:
                 },
             )
         with tracing_context(enabled=False):
-            return self.graph.invoke(
+            return self.invoke(
                 {
                     "question": None,
                     **self.workflow.record_submission(state, receipt, reconciled=True),

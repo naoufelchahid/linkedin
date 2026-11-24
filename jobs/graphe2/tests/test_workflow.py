@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -404,3 +404,135 @@ def test_metrics_count_confirmed_once_across_lots_and_keep_recipe_in_pipe(env):
         "submitted": 1,
         "errors": 1,
     }
+
+
+def test_native_browser_delegates_account_and_reopens_attempt(env):
+    item = env.item("dedicated")
+    calls = []
+    env.browser.native_submission = True
+
+    def native(state, memory):
+        snap = env.runner.graph.get_state(config(item["dossier"]))
+        assert snap.values["submission"]["id"] == state["submission"]["id"]
+        calls.append("native")
+        if not state.get("account_result"):
+            return {
+                "kind": "account_required",
+                "browser_tab": 3,
+                "scope": "https://portal.example.org",
+                "account_operation": "registration",
+                "transmission_attempted": False,
+            }
+        return {"kind": "submitted", "receipt": {"reference": "synthetic"}}
+
+    def account(state, memory):
+        snap = env.runner.graph.get_state(config(item["dossier"]))
+        assert snap.next == ("agent_compte",)
+        assert state["browser_tab"] == 3
+        assert not state["submission"]
+        assert state["account_scope"] == "https://portal.example.org"
+        calls.append("account")
+        return {"status": "success", "cause": "account_active", "browser_tab": 4}
+
+    env.browser.run_form = native
+    env.browser.run_account = account
+    result = env.runner.run(item)
+    assert result["status"] == "submitted"
+    assert result["account_result"]["cause"] == "account_active"
+    assert calls == ["native", "account", "native"]
+
+
+def test_real_and_studio_graphs_expose_the_same_agent_nodes(env):
+    from linkedin_applications.studio import graph as studio
+
+    real = env.runner.graph.get_graph()
+    preview = studio.get_graph()
+    assert set(preview.nodes) == set(real.nodes)
+    assert {(edge.source, edge.target) for edge in preview.edges} == {
+        (edge.source, edge.target) for edge in real.edges
+    }
+    assert real.nodes["agent_compte"].metadata["agent"] == "compte"
+
+
+def test_old_planned_submission_is_reconciled_without_native_clicks(env):
+    item = env.item("old-plan")
+    env.browser.native_submission = True
+    env.browser.run_form = lambda *_: pytest.fail("a legacy attempt must be verified")
+    env.browser.receipts[item["dossier"]] = {"reference": "synthetic"}
+    state = {
+        **item,
+        "submission": {
+            "id": "attempt",
+            "status": "open",
+            "native": True,
+            "prepared": True,
+        },
+    }
+    result = env.runner.workflow.transmit(state)
+    assert result["status"] == "submitted"
+    assert env.browser.calls == [("verify", "old-plan")]
+
+
+def test_pending_activation_is_retried_at_account_node_without_reopening_application(
+    env,
+):
+    item = env.item("activation")
+    env.browser.native_submission = True
+    env.browser.confirmations = object()
+    account_status = []
+    native_calls = []
+
+    def native(state, memory):
+        native_calls.append(state["submission"]["id"])
+        if len(native_calls) == 1:
+            return {
+                "kind": "account_required",
+                "browser_tab": 3,
+                "scope": "https://portal.example.org",
+                "account_operation": "registration",
+                "transmission_attempted": False,
+            }
+        return {"kind": "submitted", "receipt": {"reference": "synthetic"}}
+
+    def account(state, memory):
+        account_status.append(state.get("status"))
+        if len(account_status) == 1:
+            return {"status": "failure", "cause": "confirmation_pending"}
+        return {"status": "success", "cause": "account_active"}
+
+    env.browser.run_form = native
+    env.browser.run_account = account
+    assert env.runner.run(item)["status"] == "waiting_account_agent"
+    assert env.runner.run(item)["status"] == "waiting_account_agent"
+    assert len(account_status) == len(native_calls) == 1
+    env.clock += timedelta(seconds=30)
+    assert env.runner.run(item)["status"] == "submitted"
+    assert len(account_status) == len(native_calls) == 2
+
+
+def test_account_activation_can_be_followed_by_login_before_submission(env):
+    item = env.item("activation-login")
+    env.browser.native_submission = True
+    operations = []
+    scope = "https://portal.example.org"
+
+    def native(state, memory):
+        if len(operations) == 2:
+            return {"kind": "submitted", "receipt": {"reference": "synthetic"}}
+        operation = "login" if operations else "registration"
+        return {
+            "kind": "account_required",
+            "browser_tab": 3,
+            "scope": scope,
+            "account_operation": operation,
+            "transmission_attempted": False,
+        }
+
+    def account(state, memory):
+        operations.append(state["account_operation"])
+        return {"status": "success", "cause": "account_active"}
+
+    env.browser.run_form = native
+    env.browser.run_account = account
+    assert env.runner.run(item)["status"] == "submitted"
+    assert operations == ["registration", "login"]

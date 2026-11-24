@@ -62,7 +62,7 @@ def inside():
                 """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Lettre synthetique de recette pour Atelier Atlas au poste d’Analyste de données</w:t></w:r></w:p></w:body></w:document>""",
             )
 
-        async def write(codex, *args):
+        async def write(codex, *args, **kwargs):
             return {
                 "subject": "Analyste de données — Atelier Atlas",
                 "paragraphs": ["Lettre synthétique adaptée."],

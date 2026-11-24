@@ -2,17 +2,27 @@
 
 import asyncio
 import json
+import re
 from hashlib import sha256
+from importlib.resources import files
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from .account_agent import AccountAgent
+from .accounts import registration_decision
 from .codex import Codex, ConnectorError, Session, codex_environment
 from .graph import fingerprint
 from .mandate import TEXT as SUBMISSION_MANDATE
 from .obstacles import SIGNALS, STAGES
+from .upload_fields import file_fields
 from .urls import offer_url
 from .writer import dossier_context, schema
 
+PREPARATION_PROMPT = (
+    files(__package__)
+    .joinpath("resources/browser-system.txt")
+    .read_text(encoding="utf-8")
+)
 READ = {"page_getPageInfo", "page_extractText"}
 PREPARATION = {
     "page_clickElement",
@@ -21,7 +31,6 @@ PREPARATION = {
     "page_attachFile",
     "page_navigate",
 }
-TRANSMISSION = {"page_clickElement", "page_trustedClick"}
 
 REVIEW_TOOLS = (
     "page_getPageInfo",
@@ -44,6 +53,22 @@ FORM_TOOLS = REVIEW_TOOLS + (
     "page_pressKey",
     "page_submitForm",
 )
+
+DOCUMENT_TOOLS = (
+    {
+        "name": "attach_dossier_document",
+        "description": "Joindre le CV ou la lettre figée au sélecteur observé, avec contrôle de l’URL et de l’empreinte.",
+        "inputSchema": schema(
+            piece="string", tab="integer", url="string", selector="string"
+        ),
+    },
+    {
+        "name": "inspect_attachment_fields",
+        "description": "Lister les champs de fichier visibles et masqués dans le formulaire ou le conteneur observé.",
+        "inputSchema": schema(tab="integer", url="string", container="string"),
+    },
+)
+DOCUMENT_TOOL_NAMES = {tool["name"] for tool in DOCUMENT_TOOLS}
 
 AGENT_RESULT = schema(
     kind="string",
@@ -69,7 +94,46 @@ AGENT_RESULT["properties"]["kind"]["enum"] = [
     "registration",
     "challenge",
     "account_confirmation",
+    "account_required",
 ]
+
+
+def registration_result(result, scope, memory, *, can_create=False):
+    choice = registration_decision(memory, scope, permanent=True)
+    if choice == "allow" and can_create:
+        return {**result, "scope": scope, "kind": "account_required"}
+    reason = (
+        "Inscription refusée dans la mémoire de ce portail."
+        if choice == "deny"
+        else "Inscription autorisée par l’accord permanent. La création du compte s’effectue en production."
+    )
+    return {**result, "scope": scope, "kind": "blocked", "text": reason}
+
+
+def check_google_option(result, page):
+    controls = page.get("interactive", {})
+    labels = [
+        " ".join((row.get("text") or "").split())
+        for section in ("buttons", "links")
+        for row in controls.get(section, [])
+        if not row.get("state", {}).get("disabled")
+    ]
+    if any(re.search(r"\bgoogle\b", label, re.IGNORECASE) for label in labels):
+        return result
+    if "Agree and create profile" in labels:
+        return {
+            **result,
+            "kind": "registration",
+            "text": (
+                "Le formulaire propose l’inscription par e-mail via « Agree and create profile ». "
+                "Le site demande d’accepter ses conditions et sa politique de confidentialité."
+            ),
+        }
+    return {
+        **result,
+        "kind": "blocked",
+        "text": "L’option Google annoncée est introuvable parmi les boutons actifs de cet écran.",
+    }
 
 
 class DocumentVerificationError(ConnectorError):
@@ -143,6 +207,34 @@ class Browsentic:
             await self.use(rpc, "page_switchTab", {"tabId": tab})
         self.tabs[dossier] = tab
         return tab
+
+    async def follow_opened_tab(self, rpc, previous, known_tabs, origins):
+        deadline = asyncio.get_running_loop().time() + 2
+        while True:
+            current = await self.inventory(rpc)
+            active = current.get("activeTabId")
+            if active is not None and active != previous:
+                if active in known_tabs:
+                    raise ConnectorError("browsentic_tab_changed")
+                row = next(
+                    (
+                        tab
+                        for tab in current.get("tabs", [])
+                        if tab.get("tabId") == active
+                    ),
+                    {},
+                )
+                url = current.get("url") or current.get("currentUrl") or row.get("url")
+                if url and url != "about:blank":
+                    target = urlsplit(url)
+                    if f"{target.scheme}://{target.netloc}" not in origins:
+                        raise ConnectorError("browsentic_destination_unknown")
+                    return active
+            if asyncio.get_running_loop().time() >= deadline:
+                if active == previous:
+                    return previous
+                raise ConnectorError("browsentic_destination_unknown")
+            await asyncio.sleep(0.1)
 
     async def current_url(self, rpc, tab):
         current = await self.inventory(rpc)
@@ -253,10 +345,54 @@ class Browsentic:
             raise ConnectorError("browsentic_destination_changed")
         return await send(target, content)
 
+    async def inspect_attachment_fields(self, rpc, tab, url, container):
+        if not container.strip() or await self.current_url(rpc, tab) != url:
+            raise ConnectorError("browsentic_destination_changed")
+        page = self.json_result(
+            await self.use(
+                rpc,
+                "page_extractText",
+                {
+                    "target": {"selector": container},
+                    "format": "html",
+                    "maxLength": 50000,
+                },
+            )
+        )
+        html = page.get("content")
+        if not isinstance(html, str):
+            raise ConnectorError("browsentic_upload_markup_unavailable")
+        if page.get("truncated"):
+            raise ConnectorError("browsentic_upload_narrow_container")
+        if await self.current_url(rpc, tab) != url:
+            raise ConnectorError("browsentic_destination_changed")
+        return file_fields(html, page.get("source") or container)
+
+    async def document_tool(self, rpc, state, name, args):
+        if name == "inspect_attachment_fields":
+            fields = await self.inspect_attachment_fields(
+                rpc, args["tab"], args["url"], args["container"]
+            )
+            return json.dumps({"file_fields": fields}, ensure_ascii=False)
+        if name == "attach_dossier_document":
+            await self.attach_document(
+                rpc,
+                args["tab"],
+                args["url"],
+                state,
+                args["piece"],
+                {"selector": args["selector"]},
+            )
+            return "Pièce jointe avec empreinte vérifiée. Relis le nom affiché et les erreurs du formulaire."
+        raise ConnectorError("browsentic_action_denied")
+
     async def perform(self, rpc, tab, state, name, value=None, phase="prepare"):
         rule = self.actions.get(name, {})
-        legal = TRANSMISSION if phase == "submit" else PREPARATION
-        if rule.get("phase") != phase or rule.get("tool") not in legal:
+        if (
+            phase != "prepare"
+            or rule.get("phase") != phase
+            or rule.get("tool") not in PREPARATION
+        ):
             raise ConnectorError("browsentic_action_denied")
         url = await self.current_url(rpc, tab)
         if not self.matches(url, rule):
@@ -336,6 +472,7 @@ class Browsentic:
                 for tool in available
                 if tool["name"] in READ
             ]
+            definitions.extend(DOCUMENT_TOOLS)
             definitions.append(
                 {
                     "name": "form_action",
@@ -354,17 +491,8 @@ class Browsentic:
                         action = params["action"]
                         rule = self.actions.get(action, {})
                         phase = rule.get("phase")
-                        if phase not in {"prepare", "register"}:
+                        if phase != "prepare":
                             raise ConnectorError("browsentic_action_denied")
-                        if phase == "register" and not any(
-                            row["kind"] == "registration"
-                            and row["scope"] == rule["origin"]
-                            and row["choice"] == "allow"
-                            for row in memory
-                        ):
-                            raise ConnectorError(
-                                "browsentic_registration_approval_required"
-                            )
                         before = None
                         if rule.get("opens_tab"):
                             before = {
@@ -375,18 +503,16 @@ class Browsentic:
                             rpc, tab, state, action, params.get("value"), phase
                         )
                         if before is not None:
-                            after = await self.inventory(rpc)
-                            target = after.get("activeTabId")
-                            if target != tab and target not in before:
-                                target_url = urlsplit(
-                                    await self.current_url(rpc, target)
-                                )
-                                origin = f"{target_url.scheme}://{target_url.netloc}"
-                                if origin not in rule.get("destination_origins", []):
-                                    raise ConnectorError(
-                                        "browsentic_destination_unknown"
-                                    )
-                                tab = self.tabs[state["dossier"]] = target
+                            tab = await self.follow_opened_tab(
+                                rpc,
+                                tab,
+                                before,
+                                rule.get("destination_origins", []),
+                            )
+                            self.tabs[state["dossier"]] = tab
+                    elif name in DOCUMENT_TOOL_NAMES and params["tab"] == tab:
+                        value = await self.document_tool(rpc, state, name, params)
+                        result = {"content": [{"type": "text", "text": value}]}
                     elif name in READ:
                         result = await self.use(rpc, name, params)
                     else:
@@ -412,22 +538,13 @@ class Browsentic:
                 for name, rule in self.actions.items()
             }
             result = await self.codex.turn(
-                "Suis le formulaire avec les outils proposés. Renseigne uniquement des faits confirmés "
-                "et applicables. Pour un fait manquant retourne question, pour CAPTCHA ou code challenge, "
-                "pour une inscription nécessaire registration, pour une lettre demandée letter, "
-                "ou blocked si un prérequis empêche la suite. Retourne ready seulement au prochain "
-                "geste de transmission vérifié, avec son identifiant action_id. "
-                "Si le formulaire exige une pièce et qu’aucune action de préparation ne permet de "
-                "joindre le fichier exact du cycle, retourne challenge et précise la pièce nécessaire. "
-                "Si le portail exige un consentement et que la décision du candidat manque, retourne "
-                "question en citant la case concernée. Si une autre action manque, retourne blocked. "
-                "Pour registration, scope doit être l’origine HTTPS exacte du portail. Pour une réponse "
-                "universelle, scope vaut global. Pour une réponse liée à l’employeur, scope prend la forme "
-                "company:Nom exact. Pour les autres, indique le pays, le contrat ou le dossier concerné.\n"
+                "Prépare le formulaire de cette offre et retourne son état. Données :\n"
                 + json.dumps(
                     {
                         **dossier_context(state),
+                        "browser_tab": tab,
                         "memory": memory,
+                        "mode": state["mode"],
                         "actions": actions,
                         "cv_pdf": bool(state.get("cv")),
                         "letter_pdf": bool(state.get("letter")),
@@ -439,25 +556,32 @@ class Browsentic:
                 ),
                 definitions,
                 call,
+                system_prompt=PREPARATION_PROMPT,
             )
+            action = {"id": result["action_id"]}
             if (
                 result["kind"] == "ready"
-                and self.actions.get(result["action_id"], {}).get("phase") != "submit"
+                and self.actions.get(action["id"], {}).get("phase") != "submit"
             ):
                 raise ConnectorError("browsentic_submission_action_unknown")
-            if result["kind"] == "registration":
+            if result["kind"] == "challenge" and re.search(
+                r"\bgoogle\b", result["text"], re.IGNORECASE
+            ):
+                await self.current_url(rpc, tab)
+                page = self.json_result(
+                    await self.use(rpc, "page_getPageInfo", {"maxPerKind": 100})
+                )
+                result = check_google_option(result, page)
+            if result["kind"] in {"registration", "account_required"}:
                 page = urlsplit(await self.current_url(rpc, tab))
                 scope = f"{page.scheme}://{page.netloc}"
-                result["scope"] = scope
-                if any(
-                    row["kind"] == "registration" and row["scope"] == scope
-                    for row in memory
-                ):
-                    result.update(
-                        kind="blocked",
-                        text="Décision d’inscription déjà enregistrée pour ce portail.",
+                if result["kind"] == "registration":
+                    result = registration_result(
+                        result, scope, memory, can_create=state["mode"] == "production"
                     )
-            return {**result, "browser_tab": tab, "action": {"id": result["action_id"]}}
+                else:
+                    result["scope"] = scope
+            return {**result, "browser_tab": tab, "action": action}
 
     def fill(self, state, memory):
         try:
@@ -465,11 +589,19 @@ class Browsentic:
         except DocumentVerificationError as error:
             return {"kind": "challenge", "text": str(error), "scope": "dossier"}
 
+    def run_account(self, state, memory):
+        if state["mode"] != "production":
+            return {
+                "status": "failure",
+                "cause": "account_creation_requires_production",
+            }
+        return asyncio.run(AccountAgent(self).run(state, memory, state["browser_tab"]))
+
     def run_form(self, state, memory):
         if state["mode"] != "production":
             raise ConnectorError("browsentic_direct_mode_invalid")
         try:
-            return asyncio.run(self.agent_form(state, memory))
+            return asyncio.run(self.native_with_receipt(state, memory))
         except DocumentVerificationError as error:
             # Le tour direct pouvait avoir agi avant de demander la pièce.
             # Réconcilier la tentative avant d’autoriser une nouvelle transmission.
@@ -482,52 +614,72 @@ class Browsentic:
                 "transmission_attempted": False,
             }
 
+    async def native_with_receipt(self, state, memory, *, verify=False):
+        output = await self.agent_form(state, memory, verify=verify)
+        receipt = output.get("receipt")
+        if receipt and not await self.receipt_observed(
+            output.get("browser_tab"), receipt, state["offer"]
+        ):
+            output.pop("receipt")
+            output.update(kind="unknown", transmission_attempted=True)
+        return output
+
+    async def receipt_observed(self, tab, receipt, offer):
+        if not tab or not receipt.get("evidence"):
+            return False
+        expected = urlsplit(receipt["url"])
+        if (
+            expected.scheme != "https"
+            or not expected.hostname
+            or expected.username
+            or expected.password
+        ):
+            return False
+        expected = expected._replace(query="", fragment="")
+        try:
+            async with (
+                asyncio.timeout(12),
+                Session(self.command, self.cwd, codex_environment()) as rpc,
+            ):
+                await self.connect(rpc)
+                current = await self.current_url(rpc, tab)
+                if urlsplit(current)._replace(query="", fragment="") != expected:
+                    return False
+                page = self.json_result(await self.use(rpc, "page_extractText", {}))
+                text = page.get("text") or page.get("content") or ""
+                proof = " ".join(receipt["evidence"].split())
+                observed = " ".join(text.split())
+                target = [offer.get("title"), offer.get("requisition")]
+                if (
+                    proof not in observed
+                    or not any(
+                        str(value).strip()
+                        and " ".join(str(value).casefold().split())
+                        in observed.casefold()
+                        for value in target
+                        if value is not None
+                    )
+                    or await self.current_url(rpc, tab) != current
+                ):
+                    return False
+        except (ConnectorError, OSError, TimeoutError, ValueError):
+            return False
+        receipt["url"] = expected.geturl()
+        return True
+
     async def agent_form(self, state, memory, verify=False):
         # App Server appelle directement le MCP. Le graphe lit le résultat du tour.
         documents = {piece: bool(state.get(piece)) for piece in ("cv", "letter")}
-        attach_tool = {
-            "name": "attach_dossier_document",
-            "description": "Joindre le CV ou la lettre figée au champ observé dans l’onglet actif.",
-            "inputSchema": schema(
-                piece="string", tab="integer", url="string", selector="string"
-            ),
-        }
 
-        account_tool = {
-            "name": "fill_portal_account",
-            "description": "Renseigner le compte du candidat dans la page de connexion ou d’inscription reconnue. Retourne son état.",
-            "inputSchema": schema(tab="integer"),
-        }
-        tools = [attach_tool]
-        if self.accounts:
-            tools.append(account_tool)
-
-        async def attach(name, args):
+        async def document_call(name, args):
             try:
-                if verify or name not in {tool["name"] for tool in tools}:
+                if verify or name not in DOCUMENT_TOOL_NAMES:
                     raise ConnectorError("browsentic_action_denied")
                 async with Session(
                     self.command, self.cwd, codex_environment()
                 ) as session:
                     await self.connect(session)
-                    if name == account_tool["name"]:
-                        status = await self.accounts.fill(
-                            self, session, state["dossier"], args["tab"], memory
-                        )
-                        return {
-                            "success": True,
-                            "contentItems": [
-                                {"type": "inputText", "text": "Compte : " + status}
-                            ],
-                        }
-                    await self.attach_document(
-                        session,
-                        args["tab"],
-                        args["url"],
-                        state,
-                        args["piece"],
-                        {"selector": args["selector"]},
-                    )
+                    value = await self.document_tool(session, state, name, args)
             except DocumentVerificationError:
                 raise
             except ConnectorError as error:
@@ -537,13 +689,15 @@ class Browsentic:
                 }
             return {
                 "success": True,
-                "contentItems": [{"type": "inputText", "text": "Pièce jointe."}],
+                "contentItems": [{"type": "inputText", "text": value}],
             }
 
         context = {
             **dossier_context(state),
             "memory": memory,
             "browser_tab": state.get("browser_tab"),
+            "account_result": state.get("account_result"),
+            "account_operation": state.get("account_operation"),
             "documents": documents,
         }
         if verify:
@@ -552,20 +706,47 @@ class Browsentic:
                 "Cherche un reçu visible ou l’offre précise dans l’historique du portail. "
                 "Si la preuve manque, retourne unknown. Reste en lecture seule, "
                 "n’entame aucun formulaire et ne déclenche aucun nouveau dépôt. Indique son onglet, "
-                "ou 0 si inconnu, et une observation expurgée. Renseigne sent_at uniquement "
-                "pour un horodatage affiché fiable avec fuseau."
+                "ou 0 si inconnu. Pour submitted, renseigne confirmation_url avec la page "
+                "HTTPS observée et evidence avec un court extrait textuel exact de la preuve, "
+                "sans données privées. Renseigne sent_at uniquement pour un horodatage fiable avec fuseau."
             )
         else:
             mandate = state.get("_mandate_text") or SUBMISSION_MANDATE
         output = await self.codex.turn(
-            mandate
-            + "\nDonnées du dossier :\n"
-            + json.dumps(context, ensure_ascii=False),
+            "Données du dossier :\n" + json.dumps(context, ensure_ascii=False),
             AGENT_RESULT,
-            tools=[] if verify else tools,
-            call=None if verify else attach,
+            tools=[] if verify else DOCUMENT_TOOLS,
+            call=None if verify else document_call,
             mcp=(self.command, REVIEW_TOOLS if verify else FORM_TOOLS),
+            system_prompt=mandate,
         )
+        if not verify and output["kind"] in {"registration", "account_required"}:
+            if output["browser_tab"] <= 0:
+                return {**output, "kind": "blocked", "text": "account_tab_missing"}
+            async with Session(self.command, self.cwd, codex_environment()) as rpc:
+                await self.connect(rpc)
+                current = urlsplit(await self.current_url(rpc, output["browser_tab"]))
+            if (
+                current.scheme != "https"
+                or not current.hostname
+                or current.username
+                or current.password
+            ):
+                return {
+                    **output,
+                    "kind": "blocked",
+                    "text": "portal_account_destination_unknown",
+                }
+            scope = f"{current.scheme}://{current.netloc}"
+            operation = "registration" if output["kind"] == "registration" else "login"
+            if operation == "registration":
+                output = registration_result(output, scope, memory, can_create=True)
+            output.update(scope=scope, account_operation=operation)
+            if (
+                output["kind"] in {"registration", "account_required"}
+                and not output["transmission_attempted"]
+            ):
+                output["signal"] = "aucun"
         if output["browser_tab"] <= 0:
             output.pop("browser_tab")
         url = urlsplit(output["confirmation_url"])
@@ -615,20 +796,6 @@ class Browsentic:
             except ConnectorError:
                 return False
 
-    async def submit_async(self, state):
-        async with (
-            asyncio.timeout(60),
-            Session(self.command, self.cwd, codex_environment()) as rpc,
-        ):
-            await self.connect(rpc)
-            tab = self.tabs.get(state["dossier"])
-            if tab is None:
-                return None
-            await self.perform(
-                rpc, tab, state, state["planned_action"]["id"], phase="submit"
-            )
-            return await self.receipt(rpc, tab, state)
-
     async def receipt(self, rpc, tab, state):
         url = await self.current_url(rpc, tab)
         for rule in self.verifications:
@@ -645,9 +812,6 @@ class Browsentic:
                 ):
                     return {"url": url, "marker": rule["marker"]}
         return None
-
-    def submit(self, state, attempt):
-        return asyncio.run(self.submit_async(state))
 
     async def verify_async(self, state):
         async with (
@@ -682,6 +846,6 @@ class Browsentic:
 
     def verify(self, state):
         if (state.get("submission") or {}).get("native"):
-            result = asyncio.run(self.agent_form(state, [], verify=True))
+            result = asyncio.run(self.native_with_receipt(state, [], verify=True))
             return result.get("receipt")
         return asyncio.run(self.verify_async(state))

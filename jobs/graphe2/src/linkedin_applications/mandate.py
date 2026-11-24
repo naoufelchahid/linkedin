@@ -3,7 +3,7 @@
 from hashlib import sha256
 from importlib.resources import files
 
-VERSION = "submission-v5"
+VERSION = "submission-v13"
 TEXT = (
     files(__package__)
     .joinpath("resources", VERSION + ".txt")

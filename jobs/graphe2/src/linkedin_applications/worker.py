@@ -20,6 +20,7 @@ from .followup import frozen_draft
 from .legacy_selection import retained_rows
 from .runner import Runner, config
 from .storage import Queue, database, selected
+from .telemetry import GraphTrace
 from .thunderbird_mail import ThunderbirdMail
 from .writer import Writer
 
@@ -76,6 +77,40 @@ class Worker:
             self.telegram_state["prompts"][ident] = msg["message_id"]
             self.save()
 
+        self.notify_mail_group(pending)
+
+    def notify_mail_group(self, pending):
+        prompts = self.telegram_state["prompts"]
+        reviews = {
+            ident: dossier["question"]["version"]
+            for ident, dossier in pending.items()
+            if dossier["question"]["kind"] == "mail" and ident in prompts
+        }
+        previous = self.telegram_state.get("mail_group", {})
+        if len(reviews) < 2:
+            if previous:
+                self.telegram_state.pop("mail_group")
+                self.save()
+            return
+        # Borner la taille du message et identifier chaque brouillon présenté.
+        reviews = dict(list(reviews.items())[:10])
+        if reviews == previous.get("reviews"):
+            return
+        titles = [
+            f"• {pending[ident]['offer']['title'][:65]} · {pending[ident]['draft']['recipient'][:120]}"
+            for ident in reviews
+        ]
+        message = self.telegram.buttons(
+            "Brouillons présentés à envoyer ensemble\n" + "\n".join(titles),
+            "mail_group",
+            [("approve", f"Envoyer ces {len(reviews)} mails")],
+        )
+        self.telegram_state["mail_group"] = {
+            "message": message["message_id"],
+            "reviews": reviews,
+        }
+        self.save()
+
     def receive(self, pending):
         prompts = self.telegram_state["prompts"]
         staged = self.telegram_state["staged"]
@@ -93,7 +128,26 @@ class Worker:
                 actor = callback.get("from", {}).get("id")
                 ident, _, choice = callback.get("data", "").partition(":")
                 ident, _, revision = ident.partition("~")
+                group = self.telegram_state.get("mail_group", {})
                 if (
+                    ident == "mail_group"
+                    and choice == "approve"
+                    and msg.get("chat", {}).get("id") == actor == self.telegram.chat
+                    and msg.get("message_id") == group.get("message")
+                    and group
+                ):
+                    for key, version in group["reviews"].items():
+                        dossier = pending.get(key)
+                        if dossier and dossier["question"].get("version") == version:
+                            self.runner.run(dossier, {"id": key, "choice": "approve"})
+                            pending.pop(key)
+                            prompts.pop(key, None)
+                    self.telegram_state.pop("mail_group")
+                    self.save()
+                    self.telegram.call(
+                        "answerCallbackQuery", {"callback_query_id": callback["id"]}
+                    )
+                elif (
                     msg.get("chat", {}).get("id") == actor == self.telegram.chat
                     and ident in pending
                 ):
@@ -237,6 +291,19 @@ def settings(data):
     return {**dotenv_values(data / ".env"), **os.environ}
 
 
+def thunderbird_command(value):
+    if not value:
+        return None
+    command = json.loads(value)
+    if (
+        not isinstance(command, list)
+        or not command
+        or not all(isinstance(arg, str) for arg in command)
+    ):
+        raise ValueError("applications_thunderbird_command_invalid")
+    return command
+
+
 def services(queue, env):
     required = (
         "APPLICATIONS_BROWSER_COMMAND",
@@ -275,22 +342,18 @@ def services(queue, env):
         browser.accounts = PortalAccounts(
             queue, env["APPLICATIONS_ACCOUNT_KEY_FILE"], policy.get("account_pages", [])
         )
-    thunderbird = None
-    if env.get("APPLICATIONS_THUNDERBIRD_COMMAND"):
-        thunderbird = json.loads(env["APPLICATIONS_THUNDERBIRD_COMMAND"])
-        if (
-            not isinstance(thunderbird, list)
-            or not thunderbird
-            or not all(isinstance(arg, str) for arg in thunderbird)
-        ):
-            raise ValueError("applications_thunderbird_command_invalid")
-    if documents and thunderbird:
+    thunderbird = thunderbird_command(env.get("APPLICATIONS_THUNDERBIRD_COMMAND"))
+    confirmation_mail = (
+        thunderbird_command(env.get("APPLICATIONS_THUNDERBIRD_READ_COMMAND"))
+        or thunderbird
+    )
+    if documents and confirmation_mail:
         from .confirmations import EmailConfirmations
 
         browser.confirmations = EmailConfirmations(
             queue,
             browser,
-            thunderbird,
+            confirmation_mail,
             policy.get("email_confirmations", []),
             offline_recipe=env.get("APPLICATIONS_OFFLINE_RECIPE_MARKERS") == "1",
         )
@@ -307,6 +370,7 @@ def services(queue, env):
             queue.data, thunderbird, env.get("APPLICATIONS_THUNDERBIRD_FROM")
         ),
         trace_port=env.get("APPLICATIONS_TRACE_LOCAL_PORT"),
+        graph_trace=GraphTrace(env),
     ), Telegram(env["APPLICATIONS_TELEGRAM_TOKEN"], env["APPLICATIONS_TELEGRAM_CHAT"])
 
 

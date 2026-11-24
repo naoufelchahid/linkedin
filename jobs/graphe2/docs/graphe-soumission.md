@@ -24,11 +24,14 @@ flowchart TD
     A -->|Champ connu| B["Utiliser le CV et les réponses confirmées"]
     A -->|Information manquante| C["Poser la question sur Telegram"]
     C --> D["Envoyer la réponse<br/>avec ou sans mémorisation"]
-    A -->|Compte employeur obligatoire| E["Réutiliser la session si possible<br/>Sinon consulter la décision propre à ce portail"]
-    E -->|Accord inconnu| F["Demander l’accord sur Telegram<br/>et conserver la décision"]
-    E -->|Session ouverte ou accord connu| G{"Accès possible ?"}
-    F --> G
-    G -->|Oui| R["Reprendre le formulaire"]
+    A -->|Compte employeur obligatoire| E["Réutiliser la session si possible<br/>Sinon lancer l’agent de compte"]
+    E -->|Inscription autorisée| F["Créer le compte et accepter les conditions obligatoires"]
+    E -->|Activation reçue| V["Rapprocher le mail avec Thunderbird<br/>confirmer puis se connecter si nécessaire"]
+    E -->|Session vérifiée| G{"Accès possible ?"}
+    F --> V
+    F -->|Aucune activation requise| G
+    V --> G
+    G -->|Oui| R["Reprendre le formulaire du dossier"]
     G -->|Non| X["Consigner le motif du blocage<br/>Continuer le lot"]
     A -->|CAPTCHA ou code| H["Prévenir sur Telegram<br/>Le candidat intervient dans le navigateur"]
     A -->|Lettre demandée| I["Adapter le canevas Inwi au poste et à la langue<br/>Joindre le PDF"]
@@ -62,4 +65,4 @@ flowchart TD
     J -->|Mail validé| K["Envoyer le mail et enregistrer son statut"]
 ```
 
-Une attente Telegram suspend uniquement le dossier concerné. Un envoi à vérifier ne réserve aucune place dans le seuil quotidien. Une confirmation tardive peut porter le total au-delà de 40. En cas d’échec du mail, la candidature reste soumise.
+Une attente Telegram suspend uniquement le dossier concerné. Un envoi à vérifier ne réserve aucune place dans le seuil quotidien. Une confirmation tardive peut porter le total au-delà de 40. Le mail de suivi est réservé avant l’appel Thunderbird et n’est pas renvoyé automatiquement s’il reste incertain. Le code actuel ne réconcilie pas cette issue par une recherche dans les messages envoyés. Une interruption avant la soumission de l’inscription peut aussi laisser sa réservation sans reprise en écriture. Pour les autres écarts entre cette vue cible et le code, consulter l’[état de l’implémentation](../README.md#état-du-code).

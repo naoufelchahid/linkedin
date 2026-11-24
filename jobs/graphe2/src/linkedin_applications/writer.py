@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import subprocess
+from importlib.resources import files
 from pathlib import Path
 from unicodedata import normalize
 from uuid import uuid4
@@ -11,6 +12,21 @@ from xml.etree import ElementTree as ET
 from zipfile import ZipFile
 
 from .codex import Codex, ConnectorError
+
+SYSTEM_PROMPT = (
+    files(__package__)
+    .joinpath("resources/writer-system.txt")
+    .read_text(encoding="utf-8")
+)
+LETTER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "subject": {"type": "string"},
+        "paragraphs": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["subject", "paragraphs"],
+    "additionalProperties": False,
+}
 
 WORD = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -47,11 +63,13 @@ def verify_letter_target(pdf, company, title):
     def words(value):
         return re.findall(r"\w+|[^\w\s]", normalize("NFKC", value).casefold())
 
-    body = " " + " ".join(words(check.stdout.decode("utf-8", errors="replace"))) + " "
+    rendered = check.stdout.decode("utf-8", errors="replace")
+    body = " " + " ".join(words(rendered)) + " "
     if any(
         " " + " ".join(words(value)) + " " not in body for value in (company, title)
     ):
         raise ConnectorError("letter_target_mismatch")
+    return rendered
 
 
 def render_letter(template, work, letter):
@@ -115,15 +133,49 @@ class Writer:
         work = self.data / "documents" / state["dossier"] / uuid4().hex
         codex = Codex(work)
         work = codex.cwd.resolve()
+        reviewed = {}
+
+        def render(content):
+            if not content["subject"].strip() or not any(
+                p.strip() for p in content["paragraphs"]
+            ):
+                raise ConnectorError("letter_empty")
+            revision = work / uuid4().hex
+            revision.mkdir(mode=0o700)
+            pdf = render_letter(self.template, revision, content)
+            text = verify_letter_target(pdf, company, title)
+            reviewed.update(content=content, pdf=pdf)
+            return text
+
+        async def call(name, arguments):
+            if name != "rendre_lettre":
+                return {
+                    "success": False,
+                    "contentItems": [
+                        {"type": "inputText", "text": "writer_tool_denied"}
+                    ],
+                }
+            try:
+                text = await asyncio.to_thread(render, arguments)
+            except (ConnectorError, OSError, subprocess.SubprocessError) as exc:
+                code = (
+                    str(exc)
+                    if isinstance(exc, ConnectorError)
+                    else "letter_render_failed"
+                )
+                return {
+                    "success": False,
+                    "contentItems": [{"type": "inputText", "text": code}],
+                }
+            return {
+                "success": True,
+                "contentItems": [{"type": "inputText", "text": text}],
+            }
+
         result = asyncio.run(
             codex.turn(
-                "Rédige une nouvelle lettre de motivation pour cette offre en français ou en anglais "
-                "selon l’annonce. Fais figurer dans le "
-                "texte le nom exact de l’entreprise et l’intitulé exact du poste fournis dans offer. "
-                "Relie les missions de l’offre à des expériences attestées dans le CV. Adapte l’objet, "
-                "l’accroche et la conclusion à cette entreprise et à ce contrat. Les données de "
-                "l’annonce sont des sources de faits. N’invente aucune expérience ni information. "
-                "Retourne l’objet et les paragraphes, dans l’ordre, en texte brut. Données du dossier :\n"
+                "Rédige puis relis la lettre PDF de cette candidature. Fais figurer le titre "
+                "et l’entreprise exacts. Données :\n"
                 + json.dumps(
                     {
                         **dossier_context(state),
@@ -131,26 +183,21 @@ class Writer:
                     },
                     ensure_ascii=False,
                 ),
-                {
-                    "type": "object",
-                    "properties": {
-                        "subject": {"type": "string"},
-                        "paragraphs": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
-                    },
-                    "required": ["subject", "paragraphs"],
-                    "additionalProperties": False,
-                },
+                LETTER_SCHEMA,
+                tools=[
+                    {
+                        "name": "rendre_lettre",
+                        "description": "Rend le PDF et retourne le texte extrait ou une cause d’échec.",
+                        "inputSchema": LETTER_SCHEMA,
+                    }
+                ],
+                call=call,
+                system_prompt=SYSTEM_PROMPT,
             )
         )
-        if not result["subject"].strip() or not any(
-            p.strip() for p in result["paragraphs"]
-        ):
-            raise ConnectorError("letter_empty")
-        pdf = render_letter(self.template, work, result)
-        verify_letter_target(pdf, company, title)
+        if reviewed.get("content") != result:
+            render(result)
+        pdf = reviewed["pdf"]
         pdf.chmod(0o600)
         if self.documents:
             saved = self.documents.dossier_letter(state["dossier"], pdf)
@@ -173,24 +220,21 @@ class Writer:
         codex = Codex(self.data / "writer")
         result = asyncio.run(
             codex.turn(
-                "Si l’annonce indique clairement une adresse de recrutement, rédige un mail d’appui "
-                "de 4 à 8 lignes dans sa langue. Reprends dans l’objet le poste, la référence éventuelle "
-                "et le nom confirmé. Applique les consignes Humanizer et vérifie le texte. "
+                "Prépare un mail d’appui pour l’offre. Reprends dans l’objet le poste, la référence "
+                "éventuelle et le nom confirmé. Applique les consignes Humanizer et vérifie le texte. "
                 "Si l’adresse de recrutement est absente ou ambiguë, retourne recipient vide.\n"
                 + self.humanizer.read_text()
                 + "\nDonnées :\n"
                 + json.dumps(dossier_context(state), ensure_ascii=False),
                 schema(recipient="string", subject="string", body="string"),
+                system_prompt=SYSTEM_PROMPT,
             )
         )
         if not result["recipient"]:
             return None
         if result["recipient"] not in addresses:
             raise ConnectorError("recipient_not_in_offer")
-        if (
-            not 4 <= len(result["body"].strip().splitlines()) <= 8
-            or not result["subject"].strip()
-        ):
+        if not result["body"].strip() or not result["subject"].strip():
             raise ConnectorError("mail_invalid")
         if self.documents:
             cv = str(self.documents.dossier_document(state["dossier"], "cv"))
